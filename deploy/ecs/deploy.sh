@@ -13,7 +13,7 @@ npm run build
 
 package=$(mktemp -d)
 trap 'rm -rf "$package"' EXIT
-COPYFILE_DISABLE=1 tar -czf "$package/site.tar.gz" -C dist/client .
+COPYFILE_DISABLE=1 tar --no-xattrs -czf "$package/site.tar.gz" -C dist/client .
 ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$host" "mkdir -p /opt/homepage/incoming/$release"
 scp -o BatchMode=yes -o StrictHostKeyChecking=yes "$package/site.tar.gz" deploy/ecs/compose.yaml deploy/ecs/nginx.conf deploy/ecs/http.conf deploy/ecs/https.conf deploy/ecs/install.sh "$host:/opt/homepage/incoming/$release/"
 scp -o BatchMode=yes -o StrictHostKeyChecking=yes .env.ecs.htpasswd "$host:/opt/homepage/incoming/$release/home.htpasswd"
