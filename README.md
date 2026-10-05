@@ -25,7 +25,7 @@ npm run build
 ## 功能
 
 - 五个网址分类，百度／必应／Google 搜索，以及 `/` 搜索快捷键。
-- 网址新增、编辑、删除与撤销；拖拽排序；菜单支持向前／向后移动，适用于手机和键盘。
+- 网址新增、编辑、删除与撤销；新收藏和已有的文字图标收藏自动加载网站图标；拖拽排序；菜单支持向前／向后移动，适用于手机和键盘。
 - 娱乐文件夹，可把网址移入／移出文件夹。
 - 待办创建、完成、筛选、删除与撤销，本地笔记自动保存。
 - 月历与农历日期、一言切换和复制。
@@ -39,7 +39,7 @@ npm run build
 
 默认壁纸：`https://wallpaper.hipc.cn/background2024.jpg/backdrop`。
 备用壁纸：`https://wallpaper.hipc.cn/macos/18.jpg/backdrop`、`https://wallpaper.hipc.cn/macos/19.jpg/backdrop`。
-内置网址图标：`https://home.hipcapi.com/home_icon/bookmarks/`。所有使用的资源均已保存到 `public/assets/`；网址图标加载失败使用文字标识，壁纸加载失败使用纯色背景。
+内置网址图标：`https://home.hipcapi.com/home_icon/bookmarks/`。内置资源已保存到 `public/assets/`。自定义收藏依次尝试网站根目录的 `favicon.ico`、`favicon.svg`、`apple-touch-icon.png`，再尝试 DuckDuckGo 的域名图标缓存；每个来源最多等待 5 秒，全部失败后使用文字标识。缓存服务仅接收域名，图标请求不发送本站 Referer。修改收藏网址后重新加载网站图标，无需迁移已有浏览器数据。壁纸加载失败使用纯色背景。
 
 ## 浏览器能力
 

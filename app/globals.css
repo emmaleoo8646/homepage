@@ -1937,6 +1937,11 @@ kbd {
 .app-icon img {
   object-fit: contain;
 }
+.app-icon img.site-favicon,
+.folder-icon img.site-favicon {
+  object-fit: contain;
+  padding: 10px;
+}
 .sample-label {
   font-size: 12px;
 }

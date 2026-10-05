@@ -42,6 +42,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
+import { IconImage } from "@/components/bookmark-icon";
 import {
   Dialog,
   DialogContent,
@@ -147,26 +148,6 @@ function Choice({
         ))}
       </SelectContent>
     </Select>
-  );
-}
-function IconImage({ icon, name }: { icon: string; name: string }) {
-  const [failed, setFailed] = useState(false);
-  return (
-    <>
-      {(!icon || failed) && (
-        <span
-          className="icon-fallback"
-          style={{
-            background: `hsl(${[...name].reduce((a, c) => a + c.charCodeAt(0), 0) % 360} 65% 55%)`,
-          }}
-        >
-          {name.slice(0, 1)}
-        </span>
-      )}
-      {icon && !failed && (
-        <img src={`/assets/${icon}`} alt="" onError={() => setFailed(true)} />
-      )}
-    </>
   );
 }
 function Tile({
@@ -468,7 +449,7 @@ export default function Page() {
       category: formCategory,
       folder:
         formCategory === "home" && formFolder !== "none" ? formFolder : null,
-      icon: editing?.icon ?? "",
+      icon: editing?.url === url ? editing.icon : "",
     });
     if (!parsed.success) {
       setFormError(parsed.error.issues[0].message);
@@ -627,7 +608,7 @@ export default function Page() {
           rel="noopener noreferrer"
           aria-label={`打开${b.name}`}
         >
-          <IconImage key={b.icon} icon={b.icon} name={b.name} />
+          <IconImage icon={b.icon} name={b.name} url={b.url} />
         </a>
         <span className="tile-label">{b.name}</span>
         <DropdownMenu>
@@ -940,7 +921,7 @@ export default function Page() {
                           style={{ background: iconColors[b.icon] ?? "#fff" }}
                           key={b.id}
                         >
-                          <IconImage icon={b.icon} name={b.name} />
+                          <IconImage icon={b.icon} name={b.name} url={b.url} />
                         </div>
                       ))}
                       {folderBookmarks.length === 0 && <Plus size={30} />}
