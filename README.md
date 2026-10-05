@@ -1,6 +1,8 @@
 # HiTab · 我的起始页
 
-参考 [HiTab](https://www.haipc.cn) 的独立复刻版，以 React、TypeScript 和 Vinext 实现，静态导出部署到私有 Sites。
+参考 [HiTab](https://www.haipc.cn) 的独立复刻版，以 React、TypeScript 和 Vinext 实现。支持静态导出部署到私有 Sites 或阿里云 ECS。
+
+阿里云版本域名为 `home.douwuyou.cn`，采用 HTTPS 与服务器端登录保护。配置、更新和验收方法见 [ECS 部署说明](deploy/ecs/README.md)。源码仓库为 [emmaleoo8646/homepage](https://github.com/emmaleoo8646/homepage)。
 
 ## 本地运行
 
@@ -31,7 +33,7 @@ npm run build
 
 使用版本为 1 的 `hitab-personal:v1` 浏览器存储。数据仅属于当前网站域名和浏览器；清除网站数据后会恢复默认内容，不跨设备同步。存储不可用或保存内容无法读取时，显示提示并保留当前会话的操作能力。
 
-天气和热搜是明确标识的示例内容，并有真实来源链接。未建设账号、云端同步或文件上传；文件快传入口说明限制并链接原站。私有访问由 Sites 托管层控制，不在前端模拟认证。
+天气和热搜是明确标识的示例内容，并有真实来源链接。未建设应用内账号、云端同步或文件上传；文件快传入口说明限制并链接原站。Sites 版本由托管层控制私有访问；ECS 版本由 Nginx 强制验证登录，不在前端模拟认证。
 
 ## 素材
 
