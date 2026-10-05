@@ -1,0 +1,44 @@
+# HiTab · 我的起始页
+
+参考 [HiTab](https://www.haipc.cn) 的独立复刻版，以 React、TypeScript 和 Vinext 实现，静态导出部署到私有 Sites。
+
+## 本地运行
+
+需要 Node.js 22.13 或更高版本。
+
+```sh
+npm ci
+npm run dev
+```
+
+默认预览地址为 http://127.0.0.1:5173。
+
+```sh
+npx tsc --noEmit
+npm run build
+```
+
+静态输出位于 `dist/client/`，部署身份与静态目录位于 `.openai/hosting.json`。
+
+## 功能
+
+- 五个网址分类，百度／必应／Google 搜索，以及 `/` 搜索快捷键。
+- 网址新增、编辑、删除与撤销；拖拽排序；菜单支持向前／向后移动，适用于手机和键盘。
+- 娱乐文件夹，可把网址移入／移出文件夹。
+- 待办创建、完成、筛选、删除与撤销，本地笔记自动保存。
+- 月历与农历日期、一言切换和复制。
+- 壁纸与纯色背景、蒙层强度、浅色／深色外观、时间与组件开关。
+
+使用版本为 1 的 `hitab-personal:v1` 浏览器存储。数据仅属于当前网站域名和浏览器；清除网站数据后会恢复默认内容，不跨设备同步。存储不可用或保存内容无法读取时，显示提示并保留当前会话的操作能力。
+
+天气和热搜是明确标识的示例内容，并有真实来源链接。未建设账号、云端同步或文件上传；文件快传入口说明限制并链接原站。私有访问由 Sites 托管层控制，不在前端模拟认证。
+
+## 素材
+
+默认壁纸：`https://wallpaper.hipc.cn/background2024.jpg/backdrop`。
+备用壁纸：`https://wallpaper.hipc.cn/macos/18.jpg/backdrop`、`https://wallpaper.hipc.cn/macos/19.jpg/backdrop`。
+内置网址图标：`https://home.hipcapi.com/home_icon/bookmarks/`。所有使用的资源均已保存到 `public/assets/`；网址图标加载失败使用文字标识，壁纸加载失败使用纯色背景。
+
+## 浏览器能力
+
+支持浏览器 WebMCP 时注册读取页面、添加网址、添加待办与切换分类工具，与界面共用数据操作。不支持时正常使用页面；当前环境未提供可验证的 WebMCP 会话，因此这部分验证未完成。
