@@ -111,6 +111,9 @@ function writeSessionUser(v: SyncUser | null) {
     } else {
       localStorage.removeItem(SYNC_SESSION_STORAGE_KEY);
     }
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("hitab:sync-session"));
+    }
   } catch {
     /* follow storageError */
   }
@@ -120,6 +123,25 @@ const defaultBaseUrl = (): string => {
   if (typeof window === "undefined") return "";
   return `${window.location.origin}/api/sync`;
 };
+
+// Lightweight read-only mirror of the cached sync session, for components that
+// just want to know whether the current browser is signed in without driving
+// the full sync state machine. Refreshes on local writes (CustomEvent) and on
+// storage changes from other tabs.
+export function useCachedSyncUser(): SyncUser | null {
+  const [user, setUser] = useState<SyncUser | null>(() => readSessionUser());
+  useEffect(() => {
+    const refresh = () => setUser(readSessionUser());
+    refresh();
+    window.addEventListener("hitab:sync-session", refresh);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.removeEventListener("hitab:sync-session", refresh);
+      window.removeEventListener("storage", refresh);
+    };
+  }, []);
+  return user;
+}
 
 export function useSync(
   data: HomeState,

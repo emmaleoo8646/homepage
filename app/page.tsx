@@ -88,6 +88,7 @@ import {
   type Settings,
 } from "@/lib/home-data";
 import { SyncPanel } from "@/components/sync-panel";
+import { useCachedSyncUser } from "@/lib/sync-state";
 
 const categories = [
   { id: "home", name: "首页", Icon: Home },
@@ -236,6 +237,7 @@ export default function Page() {
     [formCategory, setFormCategory] = useState<CategoryId>("home"),
     [formFolder, setFormFolder] = useState("none"),
     [formError, setFormError] = useState("");
+  const syncUser = useCachedSyncUser();
   const stateRef = useRef(data);
   stateRef.current = data;
   const searchRef = useRef<HTMLInputElement>(null);
@@ -1012,9 +1014,12 @@ export default function Page() {
         </div>
         <footer>
           ©{now?.getFullYear() ?? 2026} ·{" "}
-          <button onClick={() => setPanel("about")}>HiTab 复刻版</button>
           <span>
-            {storageError ? "仅本次打开期间保留" : "数据保存在此浏览器"}
+            {storageError
+              ? "数据仅本次打开期间保留"
+              : syncUser
+              ? "数据保存在此浏览器，已同步到云端"
+              : "数据保存在此浏览器"}
           </span>
         </footer>
         <Dialog
