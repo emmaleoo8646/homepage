@@ -98,6 +98,15 @@ import {
 } from "@/components/folder-merge-dialog";
 import { WeatherTile } from "@/components/weather-tile";
 import { WeatherDetail } from "@/components/weather-detail";
+import { layoutMembers } from "@/lib/folder-layout";
+import { isBundledIcon } from "@/lib/bookmark-icons";
+import { readImageFile } from "@/lib/icon-upload";
+import {
+  Avatar,
+  AvatarImage,
+  AvatarFallback,
+} from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 
 const categories = [
   { id: "home", name: "首页", Icon: Home },
@@ -245,6 +254,7 @@ export default function Page() {
     [formUrl, setFormUrl] = useState(""),
     [formCategory, setFormCategory] = useState<CategoryId>("home"),
     [formFolder, setFormFolder] = useState("none"),
+    [formIcon, setFormIcon] = useState(""),
     [formError, setFormError] = useState(""),
     [mergeOpen, setMergeOpen] = useState(false),
     [mergeDraft, setMergeDraft] = useState<MergeDraft | null>(null),
@@ -437,15 +447,9 @@ export default function Page() {
     (b) => b.category === category && b.folder === null,
   );
   const folderList = data.folders.filter((f) => f.category === category);
-  // Pick the home folder dynamically for the home widget — there can be at most
-  // one entertainment-style folder in v2 (the schema doesn't enforce this, but
-  // the original product intent does). If the user has wiped all home folders,
-  // the home "娱乐" widget simply doesn't render.
-  const homeFolder =
-    data.folders.find((f) => f.category === "home") ?? null;
-  const folderBookmarks = homeFolder
-    ? data.bookmarks.filter((b) => b.folder === homeFolder.id)
-    : [];
+  // The home "娱乐" folder is no longer a special widget slot — it shows
+  // up alongside every other folder via `visibleItems` and `renderFolder`,
+  // so no separate home-folder computation is needed here.
   const remaining = data.todos.filter((t) => !t.done);
   const quote = quotes[data.quoteIndex % quotes.length];
   const hot = hotSources.find((s) => s.id === source) ?? hotSources[0];
@@ -456,6 +460,7 @@ export default function Page() {
     setFormUrl(b?.url ?? "");
     setFormCategory(b?.category ?? category);
     setFormFolder(b?.folder ?? folder);
+    setFormIcon(b?.icon ?? "");
     setFormError("");
     setPanel("bookmark");
   }
@@ -478,7 +483,7 @@ export default function Page() {
         formFolder !== "none" && allowedFolderIds.has(formFolder)
           ? formFolder
           : null,
-      icon: editing?.url === url ? editing.icon : "",
+      icon: formIcon || editing?.icon || "",
     });
     if (!parsed.success) {
       setFormError(parsed.error.issues[0].message);
@@ -899,16 +904,57 @@ export default function Page() {
           }}
         >
           <div className="folder-icons">
-            {members.slice(0, 4).map((m) => (
-              <div
-                className="folder-icon"
-                style={{ background: iconColors[m.icon] ?? "#fff" }}
-                key={m.id}
-              >
-                <IconImage icon={m.icon} name={m.name} url={m.url} />
-              </div>
-            ))}
-            {members.length === 0 && <Plus size={30} />}
+            {(() => {
+              const layout = layoutMembers(members);
+              return layout.cells.map((cell, ci) => {
+                if (cell.kind === "single") {
+                  return (
+                    <div
+                      className="folder-icon"
+                      style={{
+                        background:
+                          iconColors[cell.bookmark?.icon ?? ""] ?? "#fff",
+                      }}
+                      key={ci}
+                    >
+                      {cell.bookmark ? (
+                        <IconImage
+                          icon={cell.bookmark.icon}
+                          name={cell.bookmark.name}
+                          url={cell.bookmark.url}
+                        />
+                      ) : (
+                        <Plus size={30} />
+                      )}
+                    </div>
+                  );
+                }
+                return (
+                  <div
+                    className="folder-icon folder-icon-stack"
+                    style={{ background: "rgba(255,255,255,0.18)" }}
+                    key={ci}
+                  >
+                    {cell.bookmarks.map((m) => (
+                      <div
+                        className="folder-icon-stack-cell"
+                        style={{
+                          background: iconColors[m.icon] ?? "#fff",
+                        }}
+                        key={m.id}
+                      >
+                        <IconImage icon={m.icon} name={m.name} url={m.url} />
+                      </div>
+                    ))}
+                    {cell.overflow > 0 && (
+                      <span className="folder-overflow-badge">
+                        +{cell.overflow}
+                      </span>
+                    )}
+                  </div>
+                );
+              });
+            })()}
           </div>
         </button>
         <DropdownMenu>
@@ -940,6 +986,9 @@ export default function Page() {
   type VisibleItem =
     | { kind: "folder"; folder: Folder }
     | { kind: "bookmark"; bookmark: Bookmark };
+  // The home folder is treated like any other folder: rendered through the
+  // generic visibleItems pipeline so it shows up as a regular folder tile in
+  // both widget and no-widget home layouts (no special-cased position).
   const visibleItems: VisibleItem[] = [
     ...folderList.map<VisibleItem>((f) => ({ kind: "folder", folder: f })),
     ...bookmarkList.map<VisibleItem>((b) => ({ kind: "bookmark", bookmark: b })),
@@ -1198,34 +1247,6 @@ export default function Page() {
                     </button>
                   </Tile>
                 )}
-                {homeFolder && (
-                  <Tile name={homeFolder.name} position="folder-tile">
-                    <button
-                      className="widget folder-card"
-                      onClick={() => openFolder(homeFolder.id)}
-                      aria-label={`打开${homeFolder.name}文件夹`}
-                    >
-                      <div className="folder-icons">
-                        {folderBookmarks.slice(0, 4).map((b) => (
-                          <div
-                            className="folder-icon"
-                            style={{ background: iconColors[b.icon] ?? "#fff" }}
-                            key={b.id}
-                          >
-                            <IconImage
-                              icon={b.icon}
-                              name={b.name}
-                              url={b.url}
-                            />
-                          </div>
-                        ))}
-                        {folderBookmarks.length === 0 && (
-                          <Plus size={30} />
-                        )}
-                      </div>
-                    </button>
-                  </Tile>
-                )}
                 <Tile name="文件快传" position="transfer-tile">
                   <button
                     onClick={() => setPanel("transfer")}
@@ -1285,20 +1306,6 @@ export default function Page() {
             </div>
             {category === "home" && !data.settings.showWidgets && (
               <>
-                {homeFolder && (
-                  <div className="tile">
-                    <button
-                      className="app-icon"
-                      onClick={() => openFolder(homeFolder.id)}
-                      aria-label={`打开${homeFolder.name}文件夹`}
-                    >
-                      <span className="icon-fallback">
-                        <Home size={28} />
-                      </span>
-                    </button>
-                    <span className="tile-label">{homeFolder.name}</span>
-                  </div>
-                )}
                 <div className="tile">
                   <button
                     className="app-icon"
@@ -1383,6 +1390,61 @@ export default function Page() {
                     onChange={(e) => setFormUrl(e.target.value)}
                     inputMode="url"
                   />
+                  <label>图标</label>
+                  <div className="icon-upload-row">
+                    <Avatar className="icon-preview">
+                      {(() => {
+                        const previewSrc = formIcon || (editing?.icon ?? "");
+                        if (!previewSrc) {
+                          return (
+                            <AvatarFallback>
+                              {editing?.name?.slice(0, 1) || "?"}
+                            </AvatarFallback>
+                          );
+                        }
+                        const src = isBundledIcon(previewSrc)
+                          ? `/assets/${previewSrc}`
+                          : previewSrc;
+                        return <AvatarImage src={src} alt="" />;
+                      })()}
+                    </Avatar>
+                    <input
+                      id="bookmark-icon-upload"
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                      className="bookmark-file-input"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = "";
+                        if (!file) return;
+                        if (file.size > 2 * 1024 * 1024) {
+                          toast.error("请选择小于 2MB 的图片");
+                          return;
+                        }
+                        try {
+                          const dataUrl = await readImageFile(file);
+                          setFormIcon(dataUrl);
+                          toast.success(
+                            `图标已应用（${Math.round(dataUrl.length / 1024)}KB）`,
+                          );
+                        } catch (err) {
+                          toast.error(
+                            `图标处理失败：${(err as Error).message ?? "未知错误"}`,
+                          );
+                        }
+                      }}
+                    />
+                    {(formIcon || editing?.icon) && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setFormIcon("")}
+                      >
+                        移除图标
+                      </Button>
+                    )}
+                  </div>
                   <label>分类</label>
                   <Choice
                     label="网址分类"

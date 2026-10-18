@@ -2242,3 +2242,87 @@ kbd {
 .folder-name-input:focus {
   border-color: var(--ring);
 }
+
+/* Folder cell stack — 2×2 mini icons inside one cell when a folder has
+   more than 4 members. `position: relative` lets the +N badge anchor to
+   the bottom-right of the cell. */
+.folder-icon {
+  position: relative;
+}
+.folder-icon-stack {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 3px;
+  padding: 4px;
+}
+.folder-icon-stack-cell {
+  border-radius: 6px;
+  overflow: hidden;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+.folder-icon-stack-cell img,
+.folder-icon-stack-cell .icon-fallback {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 6px;
+  object-fit: cover;
+}
+.folder-overflow-badge {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 6px;
+  font-weight: 500;
+  pointer-events: none;
+}
+
+/* Bookmark form: icon picker row (Avatar + file input + clear button) */
+.icon-upload-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.icon-preview {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--muted);
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+}
+.icon-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.bookmark-file-input {
+  flex: 1;
+  font-size: 13px;
+  min-width: 0;
+  max-width: 260px;
+}
+.bookmark-file-input::file-selector-button {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  margin-right: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: inherit;
+  transition: background 0.15s ease;
+}
+.bookmark-file-input::file-selector-button:hover {
+  background: var(--accent);
+}
