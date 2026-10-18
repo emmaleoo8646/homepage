@@ -30,6 +30,12 @@ export const bookmarkSchema = z.object({
   folder: z.string().nullable(),
 });
 export type Bookmark = z.infer<typeof bookmarkSchema>;
+export const folderSchema = z.object({
+  id: z.string(),
+  name: z.string().min(1).max(20),
+  category: z.enum(categoryIds),
+});
+export type Folder = z.infer<typeof folderSchema>;
 export const settingsSchema = z.object({
   engine: z.enum(["baidu", "bing", "google"]),
   wallpaper: z.enum(["night-city", "mountain", "coast", "solid"]),
@@ -41,30 +47,37 @@ export const settingsSchema = z.object({
   showQuote: z.boolean(),
 });
 export type Settings = z.infer<typeof settingsSchema>;
-export const stateSchema = z.object({
+const todoSchema = z.object({
+  id: z.string(),
+  text: z.string().min(1).max(120),
+  done: z.boolean(),
+});
+// Public schema is v2 (single shape). Legacy v1 blobs are upgraded by
+// `migrateToV2` below using the internal `stateSchemaV1` so the rest of the
+// app can rely on `data.folders` always being present.
+const stateSchemaV1 = z.object({
   version: z.literal(1),
   bookmarks: z.array(bookmarkSchema),
-  todos: z.array(
-    z.object({
-      id: z.string(),
-      text: z.string().min(1).max(120),
-      done: z.boolean(),
-    }),
-  ),
+  todos: z.array(todoSchema),
   note: z.string().max(100000),
   settings: settingsSchema,
   quoteIndex: z.number().int().min(0),
-  // Optional so older persisted blobs (without this field) still load.
-  // The persist effect backfills it on the next save.
+  lastModified: z.string().optional(),
+});
+export const stateSchema = z.object({
+  version: z.literal(2),
+  bookmarks: z.array(bookmarkSchema),
+  folders: z.array(folderSchema),
+  todos: z.array(todoSchema),
+  note: z.string().max(100000),
+  settings: settingsSchema,
+  quoteIndex: z.number().int().min(0),
   lastModified: z.string().optional(),
 });
 export type HomeState = z.infer<typeof stateSchema>;
 export const STORAGE_KEY = "hitab-personal:v1";
 export const SYNC_BASE_URL_STORAGE_KEY = "hitab-sync:baseUrl";
 export const SYNC_SESSION_STORAGE_KEY = "hitab-sync:lastLogin";
-export const folders = [
-  { id: "entertainment", name: "娱乐", category: "home" as CategoryId },
-];
 export const wallpapers = [
   { id: "night-city", name: "城市夜色", src: "/assets/night-city.jpg" },
   { id: "mountain", name: "山野之间", src: "/assets/mountain.jpg" },
@@ -159,7 +172,8 @@ const seeds: Record<CategoryId, Seed[]> = {
   ],
 };
 export const initialState: HomeState = {
-  version: 1,
+  version: 2,
+  folders: [{ id: "entertainment", name: "娱乐", category: "home" }],
   bookmarks: categoryIds
     .flatMap((category) =>
       seeds[category].map(([name, icon, url], i) => ({
@@ -204,6 +218,46 @@ export const initialState: HomeState = {
   },
   quoteIndex: 0,
 };
+
+/**
+ * Migrate a raw localStorage blob into a v2 {@link HomeState}.
+ *
+ * v2 introduced a top-level `folders: Folder[]` so users can create custom-named
+ * bookmark groups (previously the only folder `entertainment` was hardcoded in
+ * `app/page.tsx` and never persisted). When upgrading v1 data we seed the
+ * entertainment folder *only if* a bookmark still references it, so users who
+ * had already cleared it don't see it come back from the dead.
+ */
+export function migrateToV2(input: unknown):
+  | { ok: true; state: HomeState }
+  | { ok: false; error: string } {
+  const v2 = stateSchema.safeParse(input);
+  if (v2.success) return { ok: true, state: v2.data };
+  const v1 = stateSchemaV1.safeParse(input);
+  if (!v1.success) {
+    // Surface whichever parse error was closer to the actual blob. v2 is tried
+    // first so malformed v2 writes are reported as v2 errors, falling back to
+    // v1 only for genuinely-older blobs.
+    return { ok: false, error: v2.error.message };
+  }
+  const v = v1.data;
+  const stillReferenced = v.bookmarks.some((b) => b.folder === "entertainment");
+  return {
+    ok: true,
+    state: {
+      version: 2,
+      bookmarks: v.bookmarks,
+      folders: stillReferenced
+        ? [{ id: "entertainment", name: "娱乐", category: "home" as CategoryId }]
+        : [],
+      todos: v.todos,
+      note: v.note,
+      settings: v.settings,
+      quoteIndex: v.quoteIndex,
+      lastModified: v.lastModified,
+    },
+  };
+}
 export const homeSlots = [
   "weibo",
   "bilibili",

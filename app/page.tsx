@@ -39,6 +39,9 @@ import {
   GripVertical,
   Monitor,
   Moon,
+  FolderPlus,
+  FolderOpen,
+  FolderInput,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
@@ -71,24 +74,28 @@ import { Sidebar, SidebarProvider } from "@/components/ui/sidebar";
 import {
   iconColors,
   initialState,
-  stateSchema,
+  migrateToV2,
   bookmarkSchema,
   safeUrl,
   categoryNames,
   categoryIds,
   homeSlots,
-  folders,
   wallpapers,
   quotes,
   hotSources,
   STORAGE_KEY,
   type HomeState,
   type Bookmark,
+  type Folder,
   type CategoryId,
   type Settings,
 } from "@/lib/home-data";
 import { SyncPanel } from "@/components/sync-panel";
 import { useCachedSyncUser } from "@/lib/sync-state";
+import {
+  FolderMergeDialog,
+  type MergeDraft,
+} from "@/components/folder-merge-dialog";
 
 const categories = [
   { id: "home", name: "首页", Icon: Home },
@@ -236,7 +243,10 @@ export default function Page() {
     [formUrl, setFormUrl] = useState(""),
     [formCategory, setFormCategory] = useState<CategoryId>("home"),
     [formFolder, setFormFolder] = useState("none"),
-    [formError, setFormError] = useState("");
+    [formError, setFormError] = useState(""),
+    [mergeOpen, setMergeOpen] = useState(false),
+    [mergeDraft, setMergeDraft] = useState<MergeDraft | null>(null),
+    [openFolderId, setOpenFolderId] = useState<string | null>(null);
   const syncUser = useCachedSyncUser();
   const stateRef = useRef(data);
   stateRef.current = data;
@@ -249,8 +259,8 @@ export default function Page() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
-        const parsed = stateSchema.safeParse(JSON.parse(raw));
-        if (parsed.success) setData(parsed.data);
+        const m = migrateToV2(JSON.parse(raw));
+        if (m.ok) setData(m.state);
         else {
           setStorageError(true);
           toast.error("保存的数据无法读取，已载入默认页面；原数据尚未覆盖。");
@@ -424,9 +434,16 @@ export default function Page() {
   const bookmarkList = data.bookmarks.filter(
     (b) => b.category === category && b.folder === null,
   );
-  const folderBookmarks = data.bookmarks.filter(
-    (b) => b.folder === "entertainment",
-  );
+  const folderList = data.folders.filter((f) => f.category === category);
+  // Pick the home folder dynamically for the home widget — there can be at most
+  // one entertainment-style folder in v2 (the schema doesn't enforce this, but
+  // the original product intent does). If the user has wiped all home folders,
+  // the home "娱乐" widget simply doesn't render.
+  const homeFolder =
+    data.folders.find((f) => f.category === "home") ?? null;
+  const folderBookmarks = homeFolder
+    ? data.bookmarks.filter((b) => b.folder === homeFolder.id)
+    : [];
   const remaining = data.todos.filter((t) => !t.done);
   const quote = quotes[data.quoteIndex % quotes.length];
   const hot = hotSources.find((s) => s.id === source) ?? hotSources[0];
@@ -445,13 +462,20 @@ export default function Page() {
     const name = formName.trim();
     let url = formUrl.trim();
     if (url && !/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(url)) url = `https://${url}`;
+    const allowedFolderIds = new Set(
+      data.folders
+        .filter((f) => f.category === formCategory)
+        .map((f) => f.id),
+    );
     const parsed = bookmarkSchema.safeParse({
       id: editing?.id ?? uid(),
       name,
       url,
       category: formCategory,
       folder:
-        formCategory === "home" && formFolder !== "none" ? formFolder : null,
+        formFolder !== "none" && allowedFolderIds.has(formFolder)
+          ? formFolder
+          : null,
       icon: editing?.url === url ? editing.icon : "",
     });
     if (!parsed.success) {
@@ -507,6 +531,136 @@ export default function Page() {
     const index = list.findIndex((v) => v.id === b.id);
     const target = list[index + direction];
     if (target) reorder(b.id, target.id);
+  }
+  // Resolve a folder id to its Folder entity (or null if it has been deleted).
+  const folderOf = (id: string | null | undefined) =>
+    id ? data.folders.find((f) => f.id === id) ?? null : null;
+  function openFolder(id: string) {
+    setOpenFolderId(id);
+    setPanel("folder");
+  }
+  function closeFolder() {
+    setOpenFolderId(null);
+    setPanel(null);
+  }
+  // Drop two bookmarks into a single folder. The semantics are predictable:
+  // source is moved out of any old folder it was in, and both source and target
+  // are written to point at `folderId`. If `folderId` references a brand-new
+  // folder, the caller is responsible for creating it before calling this.
+  function applyMerge(sourceId: string, targetId: string, folderId: string) {
+    update((d) => ({
+      ...d,
+      bookmarks: d.bookmarks.map((b) =>
+        b.id === sourceId || b.id === targetId
+          ? { ...b, folder: folderId }
+          : b,
+      ),
+    }));
+  }
+  // Snapshot the relevant slice of state before applying the merge so the toast
+  // "撤销" button can roll back cleanly (including rolling back a freshly-
+  // created folder row from `folders`).
+  function mergeWithToast(
+    sourceId: string,
+    targetId: string,
+    folderId: string,
+    folderName: string,
+  ) {
+    const prevSourceFolder =
+      data.bookmarks.find((b) => b.id === sourceId)?.folder ?? null;
+    const prevTargetFolder =
+      data.bookmarks.find((b) => b.id === targetId)?.folder ?? null;
+    const prevFolders = data.folders;
+    applyMerge(sourceId, targetId, folderId);
+    toast(`已合并到「${folderName}」`, {
+      action: {
+        label: "撤销",
+        onClick: () =>
+          update((d) => ({
+            ...d,
+            bookmarks: d.bookmarks.map((b) => {
+              if (b.id === sourceId) return { ...b, folder: prevSourceFolder };
+              if (b.id === targetId) return { ...b, folder: prevTargetFolder };
+              return b;
+            }),
+            folders: prevFolders,
+          })),
+      },
+    });
+  }
+  function openMerge(source: Bookmark, target: Bookmark) {
+    if (source.category !== target.category) {
+      toast.error("不能跨分类合并");
+      return;
+    }
+    if (source.id === target.id) return;
+    const targetFolder = folderOf(target.folder);
+    setMergeDraft({ source, target, targetFolder, category: source.category });
+    setMergeOpen(true);
+    setPanel(null);
+  }
+  function confirmMerge(
+    input:
+      | { mode: "new"; name: string }
+      | { mode: "join"; folderId: string },
+  ) {
+    if (!mergeDraft) return;
+    if (input.mode === "new") {
+      const folderId = uid();
+      update((d) => ({
+        ...d,
+        folders: [
+          ...d.folders,
+          { id: folderId, name: input.name, category: mergeDraft.category },
+        ],
+      }));
+      mergeWithToast(
+        mergeDraft.source.id,
+        mergeDraft.target.id,
+        folderId,
+        input.name,
+      );
+    } else {
+      const folder = data.folders.find((f) => f.id === input.folderId);
+      if (!folder) {
+        setMergeOpen(false);
+        setMergeDraft(null);
+        toast.error("原分组已被删除");
+        return;
+      }
+      mergeWithToast(
+        mergeDraft.source.id,
+        mergeDraft.target.id,
+        folder.id,
+        folder.name,
+      );
+    }
+    setMergeOpen(false);
+    setMergeDraft(null);
+  }
+  function removeFolder(folderId: string) {
+    const folder = folderOf(folderId);
+    if (!folder) return;
+    update((d) => ({
+      ...d,
+      folders: d.folders.filter((f) => f.id !== folderId),
+      // Reset member FKs so deleted folders don't leave dangling references
+      // (which would also block re-creating a folder with the same id later).
+      bookmarks: d.bookmarks.map((b) =>
+        b.folder === folderId ? { ...b, folder: null } : b,
+      ),
+    }));
+    toast.success(`「${folder.name}」已删除，成员网址已恢复到分类网格`);
+  }
+  function renameFolder(folderId: string, name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    update((d) => ({
+      ...d,
+      folders: d.folders.map((f) =>
+        f.id === folderId ? { ...f, name: trimmed.slice(0, 20) } : f,
+      ),
+    }));
   }
   function submitTodo(e: FormEvent) {
     e.preventDefault();
@@ -576,6 +730,7 @@ export default function Page() {
       index < homeSlots.length
         ? `app-${homeSlots[index]}`
         : "";
+    const folder = folderOf(b.folder);
     return (
       <div
         key={b.id}
@@ -598,9 +753,16 @@ export default function Page() {
         onDrop={(e) => {
           e.preventDefault();
           const from = dragged ?? e.dataTransfer.getData("text/plain");
-          if (from) reorder(from, b.id);
           setDragged(null);
           setDragOver(null);
+          if (!from || from === b.id) return;
+          const source = data.bookmarks.find((v) => v.id === from);
+          if (!source) return;
+          if (source.category !== b.category) {
+            toast.error("不能跨分类合并");
+            return;
+          }
+          openMerge(source, b);
         }}
       >
         <a
@@ -634,6 +796,44 @@ export default function Page() {
               向后移动
             </DropdownMenuItem>
             <DropdownMenuItem
+              onSelect={() => {
+                const other = data.bookmarks.find(
+                  (v) =>
+                    v.category === b.category &&
+                    v.id !== b.id &&
+                    v.folder !== b.folder,
+                );
+                if (!other) {
+                  toast.error("该分类下至少需要两个网址才能合并");
+                  return;
+                }
+                openMerge(other, b);
+              }}
+            >
+              <FolderPlus />
+              合并到新分组
+            </DropdownMenuItem>
+            {folder && (
+              <DropdownMenuItem
+                onSelect={() => {
+                  const other = data.bookmarks.find(
+                    (v) =>
+                      v.id !== b.id &&
+                      v.folder === b.folder &&
+                      v.category === b.category,
+                  );
+                  if (!other) {
+                    toast.error("同分组内没有其他可合并的网址");
+                    return;
+                  }
+                  openMerge(other, b);
+                }}
+              >
+                <FolderInput />
+                合并到「{folder.name}」
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem
               variant="destructive"
               onSelect={() => removeBookmark(b)}
             >
@@ -645,6 +845,103 @@ export default function Page() {
       </div>
     );
   }
+  function renderFolder(folder: Folder) {
+    const members = data.bookmarks.filter((b) => b.folder === folder.id);
+    return (
+      <div
+        key={folder.id}
+        className={`tile app-tile folder-tile-local ${dragOver === folder.id ? "drop-target" : ""}`}
+        onDragOver={(e) => {
+          e.preventDefault();
+          if (dragged) setDragOver(folder.id);
+        }}
+        onDragLeave={() => setDragOver(null)}
+        onDrop={(e) => {
+          e.preventDefault();
+          const from = dragged ?? e.dataTransfer.getData("text/plain");
+          setDragged(null);
+          setDragOver(null);
+          if (!from) return;
+          const source = data.bookmarks.find((v) => v.id === from);
+          if (!source) return;
+          if (source.category !== folder.category) {
+            toast.error("不能跨分类合并");
+            return;
+          }
+          if (members.some((m) => m.id === source.id)) {
+            toast("已在此分组中");
+            return;
+          }
+          const target = members[0];
+          if (target) {
+            // Reuse `openMerge` so the user can rename the folder or pick
+            // an existing one via the dialog (default action: drop straight
+            // into this folder).
+            openMerge(source, target);
+          } else {
+            // Empty folder: just place the source — no merge dialog needed.
+            update((d) => ({
+              ...d,
+              bookmarks: d.bookmarks.map((b) =>
+                b.id === source.id ? { ...b, folder: folder.id } : b,
+              ),
+            }));
+            toast.success(`已将「${source.name}」加入「${folder.name}」`);
+          }
+        }}
+      >
+        <button
+          className="widget folder-card folder-card-labeled"
+          onClick={() => openFolder(folder.id)}
+          aria-label={`打开${folder.name}分组`}
+        >
+          <div className="folder-icons">
+            {members.slice(0, 4).map((m) => (
+              <div
+                className="folder-icon"
+                style={{ background: iconColors[m.icon] ?? "#fff" }}
+                key={m.id}
+              >
+                <IconImage icon={m.icon} name={m.name} url={m.url} />
+              </div>
+            ))}
+            {members.length === 0 && <Plus size={30} />}
+          </div>
+          <span className="folder-card-name">{folder.name}</span>
+        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              className="bookmark-more"
+              aria-label={`管理${folder.name}分组`}
+            >
+              <MoreHorizontal size={15} />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuItem onSelect={() => openFolder(folder.id)}>
+              <FolderOpen />
+              打开分组
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              variant="destructive"
+              onSelect={() => removeFolder(folder.id)}
+            >
+              <Trash2 />
+              删除分组
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    );
+  }
+  type VisibleItem =
+    | { kind: "folder"; folder: Folder }
+    | { kind: "bookmark"; bookmark: Bookmark };
+  const visibleItems: VisibleItem[] = [
+    ...folderList.map<VisibleItem>((f) => ({ kind: "folder", folder: f })),
+    ...bookmarkList.map<VisibleItem>((b) => ({ kind: "bookmark", bookmark: b })),
+  ];
   return (
     <SidebarProvider className="site-wrapper">
       <main className="homepage">
@@ -911,26 +1208,34 @@ export default function Page() {
                     </button>
                   </Tile>
                 )}
-                <Tile name="娱乐" position="folder-tile">
-                  <button
-                    className="widget folder-card"
-                    onClick={() => setPanel("folder")}
-                    aria-label="打开娱乐文件夹"
-                  >
-                    <div className="folder-icons">
-                      {folderBookmarks.slice(0, 4).map((b) => (
-                        <div
-                          className="folder-icon"
-                          style={{ background: iconColors[b.icon] ?? "#fff" }}
-                          key={b.id}
-                        >
-                          <IconImage icon={b.icon} name={b.name} url={b.url} />
-                        </div>
-                      ))}
-                      {folderBookmarks.length === 0 && <Plus size={30} />}
-                    </div>
-                  </button>
-                </Tile>
+                {homeFolder && (
+                  <Tile name={homeFolder.name} position="folder-tile">
+                    <button
+                      className="widget folder-card"
+                      onClick={() => openFolder(homeFolder.id)}
+                      aria-label={`打开${homeFolder.name}文件夹`}
+                    >
+                      <div className="folder-icons">
+                        {folderBookmarks.slice(0, 4).map((b) => (
+                          <div
+                            className="folder-icon"
+                            style={{ background: iconColors[b.icon] ?? "#fff" }}
+                            key={b.id}
+                          >
+                            <IconImage
+                              icon={b.icon}
+                              name={b.name}
+                              url={b.url}
+                            />
+                          </div>
+                        ))}
+                        {folderBookmarks.length === 0 && (
+                          <Plus size={30} />
+                        )}
+                      </div>
+                    </button>
+                  </Tile>
+                )}
                 <Tile name="文件快传" position="transfer-tile">
                   <button
                     onClick={() => setPanel("transfer")}
@@ -966,7 +1271,16 @@ export default function Page() {
                 </div>
               </>
             )}
-            {bookmarkList.map((b, i) => renderBookmark(b, i))}
+            {visibleItems.map((item) =>
+              item.kind === "folder" ? (
+                renderFolder(item.folder)
+              ) : (
+                renderBookmark(
+                  item.bookmark,
+                  bookmarkList.indexOf(item.bookmark),
+                )
+              ),
+            )}
             <div
               className={`tile add-tile ${category !== "home" || !data.settings.showWidgets ? "auto-position" : ""}`}
             >
@@ -981,18 +1295,20 @@ export default function Page() {
             </div>
             {category === "home" && !data.settings.showWidgets && (
               <>
-                <div className="tile">
-                  <button
-                    className="app-icon"
-                    onClick={() => setPanel("folder")}
-                    aria-label="打开娱乐文件夹"
-                  >
-                    <span className="icon-fallback">
-                      <Home size={28} />
-                    </span>
-                  </button>
-                  <span className="tile-label">娱乐</span>
-                </div>
+                {homeFolder && (
+                  <div className="tile">
+                    <button
+                      className="app-icon"
+                      onClick={() => openFolder(homeFolder.id)}
+                      aria-label={`打开${homeFolder.name}文件夹`}
+                    >
+                      <span className="icon-fallback">
+                        <Home size={28} />
+                      </span>
+                    </button>
+                    <span className="tile-label">{homeFolder.name}</span>
+                  </div>
+                )}
                 <div className="tile">
                   <button
                     className="app-icon"
@@ -1025,7 +1341,10 @@ export default function Page() {
         <Dialog
           open={panel !== null}
           onOpenChange={(open) => {
-            if (!open) setPanel(null);
+            if (!open) {
+              setPanel(null);
+              setOpenFolderId(null);
+            }
           }}
         >
           <DialogContent
@@ -1034,7 +1353,11 @@ export default function Page() {
           >
             <div className="modal-header">
               <DialogTitle>
-                {panel ? titles[panel] : ""}
+                {panel === "folder"
+                  ? folderOf(openFolderId)?.name ?? titles.folder
+                  : panel
+                    ? titles[panel]
+                    : ""}
                 {panel === "bookmark" && (
                   <span> · {editing ? "编辑网址" : "添加网址"}</span>
                 )}
@@ -1083,20 +1406,26 @@ export default function Page() {
                       name: categoryNames[id],
                     }))}
                   />
-                  {formCategory === "home" && (
-                    <>
-                      <label>文件夹</label>
-                      <Choice
-                        label="网址文件夹"
-                        value={formFolder}
-                        onChange={setFormFolder}
-                        options={[
-                          { id: "none", name: "不放入文件夹" },
-                          ...folders,
-                        ]}
-                      />
-                    </>
-                  )}
+                  {(() => {
+                    const folderOptions = data.folders
+                      .filter((f) => f.category === formCategory)
+                      .map((f) => ({ id: f.id, name: f.name }));
+                    if (folderOptions.length === 0) return null;
+                    return (
+                      <>
+                        <label>文件夹</label>
+                        <Choice
+                          label="网址文件夹"
+                          value={formFolder}
+                          onChange={setFormFolder}
+                          options={[
+                            { id: "none", name: "不放入文件夹" },
+                            ...folderOptions,
+                          ]}
+                        />
+                      </>
+                    );
+                  })()}
                   {formError && (
                     <p className="form-error" role="alert">
                       {formError}
@@ -1519,26 +1848,54 @@ export default function Page() {
                   </div>
                 </div>
               )}
-              {panel === "folder" && (
-                <>
-                  <div className="folder-manager">
-                    {folderBookmarks.map((b, i) => renderBookmark(b, i, true))}
-                    <div className="tile">
-                      <button
-                        className="folder-add"
-                        onClick={() => openBookmark(null, "entertainment")}
-                        aria-label="向娱乐文件夹添加网址"
-                      >
-                        <Plus size={27} />
-                      </button>
-                      <span className="tile-label">添加</span>
-                    </div>
-                  </div>
-                  <p className="muted-note">
-                    拖动网址调整顺序，也可以通过菜单编辑或移出文件夹。
-                  </p>
-                </>
-              )}
+              {panel === "folder" && openFolderId &&
+                (() => {
+                  const folder = folderOf(openFolderId);
+                  if (!folder) return null;
+                  const members = data.bookmarks.filter(
+                    (b) => b.folder === folder.id,
+                  );
+                  return (
+                    <>
+                      <div className="folder-manager">
+                        <div className="folder-manager-header">
+                          <input
+                            className="folder-name-input"
+                            value={folder.name}
+                            maxLength={20}
+                            aria-label="分组名"
+                            onChange={(e) =>
+                              renameFolder(folder.id, e.target.value)
+                            }
+                          />
+                          <button
+                            className="subtle-button"
+                            onClick={() => removeFolder(folder.id)}
+                            aria-label="删除分组"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                        {members.map((b, i) => renderBookmark(b, i, true))}
+                        <div className="tile">
+                          <button
+                            className="folder-add"
+                            onClick={() =>
+                              openBookmark(null, folder.id)
+                            }
+                            aria-label={`向${folder.name}添加网址`}
+                          >
+                            <Plus size={27} />
+                          </button>
+                          <span className="tile-label">添加</span>
+                        </div>
+                      </div>
+                      <p className="muted-note">
+                        拖动网址可与同分组其他网址合并，按右键可调整顺序。
+                      </p>
+                    </>
+                  );
+                })()}
               {panel === "weather" && (
                 <div className="weather-detail">
                   <span className="example-pill">示例天气 · 非实时数据</span>
@@ -1612,6 +1969,15 @@ export default function Page() {
           </DialogContent>
         </Dialog>
         <Toaster position="bottom-center" theme={data.settings.theme} />
+        <FolderMergeDialog
+          open={mergeOpen}
+          onOpenChange={(open) => {
+            setMergeOpen(open);
+            if (!open) setMergeDraft(null);
+          }}
+          draft={mergeDraft}
+          onConfirm={confirmMerge}
+        />
       </main>
     </SidebarProvider>
   );

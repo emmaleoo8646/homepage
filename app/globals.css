@@ -2034,3 +2034,92 @@ kbd {
 .sync-conflict-actions .subtle-button {
   color: var(--soft-ink);
 }
+
+/* Folder / merge dialog (added for v2 custom-named groups) */
+.merge-preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 0;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.merge-chip {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--accent-foreground);
+  font-weight: 500;
+}
+.merge-chip img {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  object-fit: cover;
+  background: #fff;
+}
+.merge-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0 16px;
+  border: none;
+  margin: 0;
+}
+.merge-options label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  cursor: pointer;
+}
+.merge-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 12px;
+}
+.folder-card-labeled {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px;
+}
+.folder-card-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--soft-ink);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folder-tile-local {
+  position: relative;
+}
+.folder-manager-header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding-bottom: 12px;
+  grid-column: 1 / -1;
+}
+.folder-name-input {
+  font-size: 16px;
+  font-weight: 600;
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+.folder-name-input:focus {
+  border-color: var(--ring);
+}
