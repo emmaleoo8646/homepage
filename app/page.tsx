@@ -848,52 +848,53 @@ export default function Page() {
   function renderFolder(folder: Folder) {
     const members = data.bookmarks.filter((b) => b.folder === folder.id);
     return (
-      <div
+      <Tile
         key={folder.id}
-        className={`tile app-tile folder-tile-local ${dragOver === folder.id ? "drop-target" : ""}`}
-        onDragOver={(e) => {
-          e.preventDefault();
-          if (dragged) setDragOver(folder.id);
-        }}
-        onDragLeave={() => setDragOver(null)}
-        onDrop={(e) => {
-          e.preventDefault();
-          const from = dragged ?? e.dataTransfer.getData("text/plain");
-          setDragged(null);
-          setDragOver(null);
-          if (!from) return;
-          const source = data.bookmarks.find((v) => v.id === from);
-          if (!source) return;
-          if (source.category !== folder.category) {
-            toast.error("不能跨分类合并");
-            return;
-          }
-          if (members.some((m) => m.id === source.id)) {
-            toast("已在此分组中");
-            return;
-          }
-          const target = members[0];
-          if (target) {
-            // Reuse `openMerge` so the user can rename the folder or pick
-            // an existing one via the dialog (default action: drop straight
-            // into this folder).
-            openMerge(source, target);
-          } else {
-            // Empty folder: just place the source — no merge dialog needed.
-            update((d) => ({
-              ...d,
-              bookmarks: d.bookmarks.map((b) =>
-                b.id === source.id ? { ...b, folder: folder.id } : b,
-              ),
-            }));
-            toast.success(`已将「${source.name}」加入「${folder.name}」`);
-          }
-        }}
+        name={folder.name}
+        position={`folder-tile-inline ${dragOver === folder.id ? "drop-target" : ""}`}
       >
         <button
-          className="widget folder-card folder-card-labeled"
+          className="widget folder-card"
           onClick={() => openFolder(folder.id)}
           aria-label={`打开${folder.name}分组`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            if (dragged) setDragOver(folder.id);
+          }}
+          onDragLeave={() => setDragOver(null)}
+          onDrop={(e) => {
+            e.preventDefault();
+            const from = dragged ?? e.dataTransfer.getData("text/plain");
+            setDragged(null);
+            setDragOver(null);
+            if (!from) return;
+            const source = data.bookmarks.find((v) => v.id === from);
+            if (!source) return;
+            if (source.category !== folder.category) {
+              toast.error("不能跨分类合并");
+              return;
+            }
+            if (members.some((m) => m.id === source.id)) {
+              toast("已在此分组中");
+              return;
+            }
+            const target = members[0];
+            if (target) {
+              // Reuse `openMerge` so the user can rename the folder or pick
+              // an existing one via the dialog (default action: drop straight
+              // into this folder).
+              openMerge(source, target);
+            } else {
+              // Empty folder: just place the source — no merge dialog needed.
+              update((d) => ({
+                ...d,
+                bookmarks: d.bookmarks.map((b) =>
+                  b.id === source.id ? { ...b, folder: folder.id } : b,
+                ),
+              }));
+              toast.success(`已将「${source.name}」加入「${folder.name}」`);
+            }
+          }}
         >
           <div className="folder-icons">
             {members.slice(0, 4).map((m) => (
@@ -907,7 +908,6 @@ export default function Page() {
             ))}
             {members.length === 0 && <Plus size={30} />}
           </div>
-          <span className="folder-card-name">{folder.name}</span>
         </button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -932,7 +932,7 @@ export default function Page() {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-      </div>
+      </Tile>
     );
   }
   type VisibleItem =

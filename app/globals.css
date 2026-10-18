@@ -2081,25 +2081,13 @@ kbd {
   gap: 8px;
   padding-top: 12px;
 }
-.folder-card-labeled {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 10px;
-}
-.folder-card-name {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--soft-ink);
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.folder-tile-local {
-  position: relative;
+/* Category-grid folder tile: spans 2×2 cells in the 11-col × 90px-row grid,
+   matching the home entertainment widget's physical footprint. The home
+   entertainment widget itself uses `.folder-tile` (see above) which has its
+   own explicit `grid-column: 3 / span 2; grid-row: 4 / span 2;` placement. */
+.folder-tile-inline {
+  grid-column: span 2;
+  grid-row: span 2;
 }
 .folder-manager-header {
   display: flex;
