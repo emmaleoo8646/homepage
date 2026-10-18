@@ -1,17 +1,17 @@
 "use client";
 
-import { Loader2, Sun } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useWeather, wmoLabel, WmoIcon } from "@/lib/weather";
 
 /**
- * The home-page "天气" tile. Renders live data via Open-Meteo and falls back
- * to a static placeholder when the network is unreachable so the layout
- * never collapses.
+ * Home-page weather tile. Renders live data via Open-Meteo and falls back
+ * to whatever location name was already resolved (so even on cold start
+ * failures the tile looks intentional, not stuck on a fake city).
  */
 export function WeatherTile({ onSelect }: { onSelect?: () => void }) {
-  const { status, data } = useWeather();
+  const { status, data, location } = useWeather();
+  const fallbackCity = location?.city ?? "—";
 
-  // Helper: live or stale-live (failed-but-data-still-valid)
   if (data) {
     return (
       <button
@@ -43,9 +43,9 @@ export function WeatherTile({ onSelect }: { onSelect?: () => void }) {
     );
   }
 
-  // Empty / failed with no prior data: keep the original placeholder verbatim
-  // so the home grid still looks polished even before the first successful
-  // fetch (e.g. offline on cold start).
+  // Empty / failed with no prior data: show whatever location we resolved
+  // (or a generic placeholder if even IP geolocation failed). The actual
+  // temperature stays generic since there's nothing real to display.
   if (status === "failed" || status === "empty") {
     return (
       <button
@@ -53,13 +53,10 @@ export function WeatherTile({ onSelect }: { onSelect?: () => void }) {
         onClick={onSelect}
         aria-label="天气"
       >
-        <span className="weather-temp">
-          23°
-          <Sun size={31} />
-        </span>
+        <span className="weather-temp">—°</span>
         <span className="weather-place">
-          广州
-          <small>晴 21°～27°</small>
+          {fallbackCity}
+          <small>暂无天气数据</small>
         </span>
         <span className="sample-label">无法获取实时天气</span>
       </button>
@@ -78,7 +75,7 @@ export function WeatherTile({ onSelect }: { onSelect?: () => void }) {
         <Loader2 className="animate-spin" size={31} />
       </span>
       <span className="weather-place">
-        加载中…
+        {fallbackCity === "—" ? "检测位置中…" : fallbackCity}
         <small>—</small>
       </span>
     </button>

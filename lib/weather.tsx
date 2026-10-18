@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -24,12 +25,20 @@ import { toast } from "sonner";
  * CORS-friendly — the only realistic option for HiTab's static-export setup
  * (any key-required provider would be baked into the client bundle).
  *
- * We deliberately do *not* use browser geolocation or IP-based lookup; the user
- * picks a city from the dialog, which is persisted to localStorage. This
- * avoids permission prompts and the flakiness of free IP geolocation APIs.
+ * Location resolution order:
+ *   1. localStorage cache (`hitab:weather:location`)
+ *   2. Silent IP geolocation via ipapi.co (no permission prompt, ~city-level
+ *      accuracy — good enough for a personal startpage)
+ *   3. Default "广州" placeholder so the UI never collapses
+ *
+ * The user can override at any time via the dialog:
+ *   - Typing a city name in the search box → geocodes via Open-Meteo
+ *   - Clicking "使用我的位置" → calls `navigator.geolocation` and stores
+ *     precise lat/lon (browser prompts for permission once)
  */
 
 export type WeatherStatus = "loading" | "live" | "failed" | "empty";
+export type WeatherSource = "cached" | "ip" | "geo" | "manual" | "default";
 
 export interface WeatherDay {
   date: string; // "YYYY-MM-DD"
@@ -55,17 +64,30 @@ export interface WeatherSnapshot {
   fetchedAt: number; // Date.now()
 }
 
-const GEO_URL = "https://geocoding-api.open-meteo.com/v1/search";
+/**
+ * Resolved location. `lat`/`lon` are optional because a manual city entry
+ * always re-geocodes on demand and the default placeholder has no coords.
+ */
+export interface WeatherLocation {
+  city: string;
+  country?: string;
+  lat?: number;
+  lon?: number;
+  source: WeatherSource;
+}
+
 const FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
-const CACHE_KEY = "hitab:weather:city";
-const DEFAULT_CITY = "广州";
+const GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search";
+const IP_GEO_URL = "https://ipapi.co/json/";
+const CACHE_KEY = "hitab:weather:location";
 const FETCH_TIMEOUT_MS = 8000;
 const MEMO_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 // --- WMO weather code → { label, icon } -------------------------------------
-// Covers the codes documented at
-// https://open-meteo.com/en/docs#weathervariables (WMO 4677).
-export const wmoMap: Record<number, { label: string; icon: ComponentType<LucideProps> }> = {
+export const wmoMap: Record<
+  number,
+  { label: string; icon: ComponentType<LucideProps> }
+> = {
   0: { label: "晴", icon: Sun },
   1: { label: "晴间多云", icon: CloudSun },
   2: { label: "多云", icon: CloudSun },
@@ -106,37 +128,149 @@ export function WmoIcon({
   return <Icon {...rest} />;
 }
 
-// --- City persistence --------------------------------------------------------
-export function getCachedCity(): string {
-  if (typeof window === "undefined") return DEFAULT_CITY;
+// --- Location resolution & persistence --------------------------------------
+function readCachedLocation(): WeatherLocation | null {
+  if (typeof window === "undefined") return null;
   try {
-    const v = window.localStorage.getItem(CACHE_KEY);
-    return v?.trim() || DEFAULT_CITY;
+    const raw = window.localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as WeatherLocation;
+    if (typeof parsed.city !== "string" || !parsed.city.trim()) return null;
+    return {
+      city: parsed.city,
+      country: parsed.country,
+      lat: typeof parsed.lat === "number" ? parsed.lat : undefined,
+      lon: typeof parsed.lon === "number" ? parsed.lon : undefined,
+      source: parsed.source ?? "cached",
+    };
   } catch {
-    return DEFAULT_CITY;
+    return null;
   }
 }
-export function setCachedCity(name: string): void {
+function writeCachedLocation(loc: WeatherLocation): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(CACHE_KEY, name);
+    window.localStorage.setItem(CACHE_KEY, JSON.stringify(loc));
   } catch {
     /* localStorage may be disabled — non-fatal */
   }
 }
+export function clearCachedLocation(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(CACHE_KEY);
+  } catch {
+    /* non-fatal */
+  }
+}
 
-// --- Network fetcher --------------------------------------------------------
+// --- IP geolocation (free, no key) -----------------------------------------
+type IpGeoResult = {
+  city?: string;
+  country_name?: string;
+  country?: string;
+  country_code?: string;
+  latitude?: number;
+  longitude?: number;
+  timezone?: string;
+};
+async function ipLookup(signal?: AbortSignal): Promise<WeatherLocation | null> {
+  const timeout = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+  const composed = signal
+    ? AbortSignal.any([signal, timeout])
+    : timeout;
+  try {
+    const res = await fetch(IP_GEO_URL, { signal: composed });
+    if (!res.ok) return null;
+    const data = (await res.json()) as IpGeoResult;
+    const city = data.city?.trim();
+    const lat = typeof data.latitude === "number" ? data.latitude : undefined;
+    const lon = typeof data.longitude === "number" ? data.longitude : undefined;
+    if (!city || lat == null || lon == null) return null;
+    return {
+      city,
+      country: data.country_name ?? data.country,
+      lat,
+      lon,
+      source: "ip",
+    };
+  } catch {
+    return null;
+  }
+}
+
+// --- Forward geocoding via Open-Meteo ---------------------------------------
 type GeoResult = {
   results?: Array<{
     name: string;
     country?: string;
-    country_code?: string;
     latitude: number;
     longitude: number;
-    timezone?: string;
   }>;
 };
+async function geocode(
+  query: string,
+  signal?: AbortSignal,
+): Promise<WeatherLocation | null> {
+  const trimmed = query.trim();
+  if (!trimmed) return null;
+  const timeout = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+  const composed = signal
+    ? AbortSignal.any([signal, timeout])
+    : timeout;
+  try {
+    const url = `${GEOCODING_URL}?name=${encodeURIComponent(
+      trimmed,
+    )}&count=1&language=zh&format=json`;
+    const res = await fetch(url, { signal: composed });
+    if (!res.ok) return null;
+    const data = (await res.json()) as GeoResult;
+    const top = data.results?.[0];
+    if (!top) return null;
+    return {
+      city: top.name,
+      country: top.country,
+      lat: top.latitude,
+      lon: top.longitude,
+      source: "manual",
+    };
+  } catch {
+    return null;
+  }
+}
 
+// --- Browser geolocation ---------------------------------------------------
+async function browserGeolocate(
+  signal?: AbortSignal,
+): Promise<WeatherLocation | null> {
+  if (typeof navigator === "undefined" || !navigator.geolocation) return null;
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (loc: WeatherLocation | null) => {
+      if (settled) return;
+      settled = true;
+      resolve(loc);
+    };
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        if (signal?.aborted) {
+          finish(null);
+          return;
+        }
+        finish({
+          city: "我的位置",
+          lat: pos.coords.latitude,
+          lon: pos.coords.longitude,
+          source: "geo",
+        });
+      },
+      () => finish(null), // permission denied / unavailable / timeout
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 60_000 },
+    );
+  });
+}
+
+// --- Forecast fetcher -------------------------------------------------------
 type ForecastResult = {
   current: {
     time: string;
@@ -155,48 +289,48 @@ type ForecastResult = {
   timezone: string;
 };
 
-/**
- * Fetch a fresh weather snapshot for `city`. Returns `null` on any failure
- * (network, 4xx/5xx, city not found). Callers are responsible for translating
- * `null` into a UI status message.
- */
-export async function fetchWeather(
-  city: string,
+export async function fetchForecast(
+  loc: WeatherLocation,
   signal?: AbortSignal,
 ): Promise<WeatherSnapshot | null> {
-  const trimmed = city.trim();
-  if (!trimmed) return null;
+  let lat = loc.lat;
+  let lon = loc.lon;
+  let label = loc.city;
+  let country = loc.country;
+
+  // If we don't have coords (e.g. legacy cached entry) geocode by name.
+  if (lat == null || lon == null) {
+    const geo = await geocode(loc.city, signal);
+    if (!geo) return null;
+    lat = geo.lat;
+    lon = geo.lon;
+    label = geo.city;
+    country = geo.country;
+  }
+
   const timeout = AbortSignal.timeout(FETCH_TIMEOUT_MS);
-  const composed =
-    signal ?? timeout
-      ? AbortSignal.any([signal, timeout].filter(Boolean) as AbortSignal[])
-      : undefined;
+  const composed = signal
+    ? AbortSignal.any([signal, timeout])
+    : timeout;
 
   try {
-    const geoUrl = `${GEO_URL}?name=${encodeURIComponent(trimmed)}&count=1&language=zh&format=json`;
-    const geoRes = await fetch(geoUrl, { signal: composed });
-    if (!geoRes.ok) return null;
-    const geo = (await geoRes.json()) as GeoResult;
-    const top = geo.results?.[0];
-    if (!top) return null;
-
-    const forecastUrl =
-      `${FORECAST_URL}?latitude=${top.latitude}&longitude=${top.longitude}` +
+    const url =
+      `${FORECAST_URL}?latitude=${lat}&longitude=${lon}` +
       `&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m` +
       `&daily=weather_code,temperature_2m_max,temperature_2m_min` +
       `&timezone=auto&forecast_days=2`;
-    const foreRes = await fetch(forecastUrl, { signal: composed });
-    if (!foreRes.ok) return null;
-    const fore = (await foreRes.json()) as ForecastResult;
+    const res = await fetch(url, { signal: composed });
+    if (!res.ok) return null;
+    const fore = (await res.json()) as ForecastResult;
 
     const todayDate = fore.daily.time[0];
     const tomorrowDate = fore.daily.time[1];
     if (!todayDate || !tomorrowDate) return null;
 
     return {
-      cityLabel: top.name,
-      countryLabel: top.country,
-      timezone: fore.timezone || top.timezone || "UTC",
+      cityLabel: label,
+      countryLabel: country,
+      timezone: fore.timezone,
       current: {
         temperature: fore.current.temperature_2m,
         apparentTemperature: fore.current.apparent_temperature,
@@ -219,10 +353,26 @@ export async function fetchWeather(
       },
       fetchedAt: Date.now(),
     };
-  } catch (err) {
-    if ((err as { name?: string })?.name === "AbortError") return null;
+  } catch {
     return null;
   }
+}
+
+// --- Module-level singleton so concurrent mounts share the IP lookup -------
+let sharedLocationPromise: Promise<WeatherLocation | null> | null = null;
+function resolveSharedLocation(signal?: AbortSignal): Promise<WeatherLocation | null> {
+  if (sharedLocationPromise) return sharedLocationPromise;
+  sharedLocationPromise = (async () => {
+    const cached = readCachedLocation();
+    if (cached) return cached;
+    const ip = await ipLookup(signal);
+    if (ip) {
+      writeCachedLocation(ip);
+      return ip;
+    }
+    return null;
+  })();
+  return sharedLocationPromise;
 }
 
 // --- React hook -------------------------------------------------------------
@@ -230,78 +380,132 @@ export interface UseWeatherResult {
   status: WeatherStatus;
   data: WeatherSnapshot | null;
   error: string | null;
-  city: string;
+  location: WeatherLocation | null;
   refresh: () => void;
+  /** Apply a manual city (geocodes + caches + refetches). */
+  setCity: (name: string) => Promise<void>;
+  /** Trigger browser geolocation prompt; on grant, refetches with precise coords. */
+  useMyLocation: () => Promise<void>;
+  /** Clear persisted location + reset to default. */
+  reset: () => void;
 }
 
+const DEFAULT_LOCATION: WeatherLocation = {
+  city: "广州",
+  source: "default",
+};
+
 /**
- * Subscribe to live weather for `city`. Uses the same `useState + useEffect`
- * pattern as `useCachedSyncUser` to keep the codebase consistent (lint allows
- * the `set-state-in-effect` warning here the same way it does for sync).
- *
- * Behavior:
- *   - first mount with `city` (or last cached) → loading → live/failed
- *   - within 10 min after success, refresh is a no-op (cached)
- *   - refresh() always forces a new fetch
- *   - failures keep the previous `data` and update `error`
- *   - AbortError (component unmount, signal aborted) is silent — no toast,
- *     no `setState`
+ * Reactive weather subscription. Lifecycle:
+ *   - On mount: read cache OR run shared IP geolocation, then fetch forecast.
+ *   - 10-min memo: a fresh-enough snapshot for the same `location.cityLabel`
+ *     is reused without a network round-trip.
+ *   - `setCity(name)`: geocodes + caches + refetches.
+ *   - `useMyLocation()`: prompts browser for precise coords.
+ *   - `refresh()`: forces a forecast refetch.
  */
-export function useWeather(city?: string): UseWeatherResult {
-  const resolvedCity = city?.trim() || getCachedCity();
+export function useWeather(): UseWeatherResult {
   const [status, setStatus] = useState<WeatherStatus>("loading");
   const [data, setData] = useState<WeatherSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Bumped by refresh() to force the effect to re-run regardless of memo TTL.
+  const [location, setLocation] = useState<WeatherLocation | null>(null);
+  // Bumped by refresh() to force re-fetching regardless of memo TTL.
   const [refreshTick, setRefreshTick] = useState(0);
+  // Bumped by setCity / useMyLocation to force a fresh fetch.
+  const [bump, setBump] = useState(0);
   const abortedRef = useRef<AbortController | null>(null);
-  const toastedRef = useRef(false);
+  const toastedRef = useRef<string | null>(null);
 
   useEffect(() => {
     abortedRef.current?.abort();
     const ctrl = new AbortController();
     abortedRef.current = ctrl;
 
-    const fresh =
-      data?.fetchedAt != null &&
-      data?.cityLabel === resolvedCity &&
-      Date.now() - data.fetchedAt < MEMO_TTL_MS;
-    if (fresh && refreshTick === 0) {
-      // Existing snapshot still warm and matches the current city: keep `live`.
-      setStatus("live");
-      setError(null);
-      return () => ctrl.abort();
-    }
+    let cancelled = false;
+    void (async () => {
+      const loc = (await resolveSharedLocation(ctrl.signal)) ?? DEFAULT_LOCATION;
+      if (cancelled || ctrl.signal.aborted) return;
+      setLocation(loc);
 
-    setStatus("loading");
-    setError(null);
-    fetchWeather(resolvedCity, ctrl.signal).then((snap) => {
-      if (ctrl.signal.aborted) return;
+      const fresh =
+        data &&
+        data.fetchedAt != null &&
+        Date.now() - data.fetchedAt < MEMO_TTL_MS &&
+        loc.lat === location?.lat &&
+        loc.lon === location?.lon;
+      if (fresh && refreshTick === 0 && bump === 0) {
+        setStatus("live");
+        setError(null);
+        return;
+      }
+
+      setStatus("loading");
+      setError(null);
+      const snap = await fetchForecast(loc, ctrl.signal);
+      if (cancelled || ctrl.signal.aborted) return;
       if (snap) {
         setData(snap);
         setStatus("live");
         setError(null);
-        toastedRef.current = false;
+        toastedRef.current = null;
       } else {
         setStatus("failed");
-        const msg = "无法获取实时天气";
+        const msg = loc.source === "default"
+          ? "无法获取实时天气，请输入城市或允许定位"
+          : "无法获取实时天气";
         setError(msg);
-        if (!toastedRef.current) {
+        if (toastedRef.current !== msg) {
           toast.error(msg);
-          toastedRef.current = true;
+          toastedRef.current = msg;
         }
       }
-    });
+    })();
 
-    return () => ctrl.abort();
+    return () => {
+      cancelled = true;
+      ctrl.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resolvedCity, refreshTick]);
+  }, [refreshTick, bump]);
 
-  function refresh() {
-    setRefreshTick((t) => t + 1);
-  }
+  const refresh = useCallback(() => setRefreshTick((t) => t + 1), []);
 
-  return { status, data, error, city: resolvedCity, refresh };
+  const setCity = useCallback(async (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const geo = await geocode(trimmed);
+    if (!geo) {
+      toast.error(`未找到城市：${trimmed}`);
+      return;
+    }
+    writeCachedLocation(geo);
+    setLocation(geo);
+    setBump((b) => b + 1);
+  }, []);
+
+  const useMyLocation = useCallback(async () => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      toast.error("当前浏览器不支持定位");
+      return;
+    }
+    const loc = await browserGeolocate();
+    if (!loc) {
+      toast.error("无法读取位置（已拒绝或不可用）");
+      return;
+    }
+    writeCachedLocation(loc);
+    setLocation(loc);
+    setBump((b) => b + 1);
+  }, []);
+
+  const reset = useCallback(() => {
+    clearCachedLocation();
+    sharedLocationPromise = null;
+    setLocation(DEFAULT_LOCATION);
+    setBump((b) => b + 1);
+  }, []);
+
+  return { status, data, error, location, refresh, setCity, useMyLocation, reset };
 }
 
-export { DEFAULT_CITY };
+export { DEFAULT_LOCATION };

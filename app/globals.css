@@ -1862,6 +1862,26 @@ kbd {
   gap: 6px;
 }
 
+.weather-source-note {
+  font-size: 13px;
+  color: var(--muted-foreground);
+  margin: 0 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.weather-source-note strong {
+  color: var(--foreground);
+  font-weight: 500;
+}
+.weather-source-tag {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+}
+
 @media (max-width: 720px) {
   .weather-stats {
     grid-template-columns: 1fr 1fr;
