@@ -24,6 +24,38 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+  sync:
+    image: homepage-sync:latest
+    container_name: homepage-sync
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 64
+    user: "1000:1000"
+    tmpfs:
+      - /tmp
+    environment:
+      PORT: "3000"
+      NODE_ENV: production
+      DB_PATH: /data/sync.sqlite
+      LOG_LEVEL: info
+      SYNC_CORS_ALLOW: ${HOMEPAGE_SYNC_CORS_ALLOW:-}
+    env_file:
+      - ./secrets/sync.env
+    volumes:
+      - /opt/homepage/sync/data:/data:rw
+    networks:
+      edge:
+        aliases:
+          - homepage-sync
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:3000/api/healthz]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 networks:
   edge:
     external: true

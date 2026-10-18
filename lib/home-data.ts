@@ -54,9 +54,14 @@ export const stateSchema = z.object({
   note: z.string().max(100000),
   settings: settingsSchema,
   quoteIndex: z.number().int().min(0),
+  // Optional so older persisted blobs (without this field) still load.
+  // The persist effect backfills it on the next save.
+  lastModified: z.string().optional(),
 });
 export type HomeState = z.infer<typeof stateSchema>;
 export const STORAGE_KEY = "hitab-personal:v1";
+export const SYNC_BASE_URL_STORAGE_KEY = "hitab-sync:baseUrl";
+export const SYNC_SESSION_STORAGE_KEY = "hitab-sync:lastLogin";
 export const folders = [
   { id: "entertainment", name: "娱乐", category: "home" as CategoryId },
 ];

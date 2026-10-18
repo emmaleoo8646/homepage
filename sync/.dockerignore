@@ -1,0 +1,8 @@
+node_modules
+.env*
+.env.ecs*
+*.log
+.gitignore
+.docker-cache
+.DS_Store
+build-id.txt

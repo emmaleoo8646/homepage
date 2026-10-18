@@ -1957,3 +1957,80 @@ kbd {
 .nav-item {
   font-size: 14px;
 }
+
+/* --- 数据同步 (SyncPanel) --- */
+.sync-form {
+  margin-top: 14px;
+}
+.sync-account-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 4px 0 6px;
+}
+.sync-status-line {
+  margin-top: 0;
+}
+.sync-error {
+  margin: 12px 0;
+}
+.sync-pull {
+  margin-top: 14px;
+}
+.sync-advanced {
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--soft-ink);
+}
+.sync-advanced summary {
+  cursor: pointer;
+  padding: 6px 0;
+  user-select: none;
+}
+.sync-advanced input {
+  width: 100%;
+  margin-top: 8px;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 12px;
+  font-size: 14px;
+  color: var(--foreground);
+  outline: none;
+}
+.sync-advanced input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px #4c9af51a;
+}
+.sync-conflict {
+  border: 1px solid var(--border);
+  background: var(--muted);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin: 14px 0;
+}
+.sync-conflict-headline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--foreground);
+}
+.sync-conflict-headline svg {
+  color: var(--primary);
+  flex-shrink: 0;
+}
+.sync-conflict-time {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--soft-ink);
+  white-space: nowrap;
+}
+.sync-conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.sync-conflict-actions .subtle-button {
+  color: var(--soft-ink);
+}
