@@ -5,7 +5,7 @@ import {
   getPayloadMeta,
   upsertPayload,
 } from "../db.mjs";
-import { parseIfMatch, putStateSchema } from "../schemas.mjs";
+import { parseIfMatch, putStateSchema, formatZodIssues } from "../schemas.mjs";
 
 export async function stateRoutes(app, { db }) {
   app.get("/api/sync/state", async (request, reply) => {
@@ -50,7 +50,7 @@ export async function stateRoutes(app, { db }) {
     const parsed = putStateSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({
-        error: parsed.error.issues[0].message,
+        error: formatZodIssues(parsed.error),
         code: "invalid_input",
       });
     }

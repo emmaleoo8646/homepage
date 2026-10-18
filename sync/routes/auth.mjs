@@ -20,7 +20,7 @@ import {
   touchSession,
   getPayloadMeta,
 } from "../db.mjs";
-import { loginSchema, registerSchema } from "../schemas.mjs";
+import { loginSchema, registerSchema, formatZodIssues } from "../schemas.mjs";
 
 const SESSION_LIFE_MS = SESSION_MAX_AGE_S * 1000;
 
@@ -69,7 +69,7 @@ export async function authRoutes(app, { db, sessionSecret }) {
       if (!parsed.success) {
         return reply
           .code(400)
-          .send({ error: parsed.error.issues[0].message, code: "invalid_input" });
+          .send({ error: formatZodIssues(parsed.error), code: "invalid_input" });
       }
       const { username, password } = parsed.data;
       const normalised = username.toLowerCase();
@@ -81,7 +81,20 @@ export async function authRoutes(app, { db, sessionSecret }) {
       }
 
       const passwordHash = await hashPassword(password);
-      const userId = insertUser(db, normalised, passwordHash);
+      let userId;
+      try {
+        userId = insertUser(db, normalised, passwordHash);
+      } catch (err) {
+        // Race: two concurrent registers passed the existence check; the loser's
+        // INSERT violates the UNIQUE constraint. Translate to a clean 409 instead
+        // of letting it surface as a 500.
+        if (err && err.code === "SQLITE_CONSTRAINT_UNIQUE") {
+          return reply
+            .code(409)
+            .send({ error: "用户名已被占用", code: "invalid_input" });
+        }
+        throw err;
+      }
 
       const sid = mintSessionId();
       const expiresAt = new Date(Date.now() + SESSION_LIFE_MS).toISOString();
@@ -102,7 +115,7 @@ export async function authRoutes(app, { db, sessionSecret }) {
       if (!parsed.success) {
         return reply
           .code(400)
-          .send({ error: "用户名或密码格式错误", code: "invalid_input" });
+          .send({ error: formatZodIssues(parsed.error), code: "invalid_input" });
       }
       const { username, password } = parsed.data;
       const normalised = username.toLowerCase();

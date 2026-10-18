@@ -251,4 +251,74 @@ let secondJar;
     `CORS preflight from disallowed origin returns no allow-origin (got "${aco}")`);
 }
 
+// 16. Short username → 400 with friendly Chinese error mentioning 用户名 and 至少
+{
+  const r = await hit("POST", "/api/sync/register", {
+    body: { username: "ab", password: "valid12345" },
+    jar: new Jar(),
+  });
+  check(r.status === 400 && r.body.code === "invalid_input",
+    `Short username returns 400 invalid_input (got ${r.status} ${r.text})`);
+  check(r.body.error && r.body.error.includes("用户名") && r.body.error.includes("至少"),
+    `Short username error includes 用户名 and 至少 (got "${r.body.error}")`);
+}
+
+// 17. Short password → 400 mentioning 密码 and 至少
+{
+  const r = await hit("POST", "/api/sync/register", {
+    body: { username: "longnameok", password: "x" },
+    jar: new Jar(),
+  });
+  check(r.status === 400 && r.body.code === "invalid_input",
+    `Short password returns 400 (got ${r.status} ${r.text})`);
+  check(r.body.error && r.body.error.includes("密码") && r.body.error.includes("至少"),
+    `Short password error includes 密码 and 至少 (got "${r.body.error}")`);
+}
+
+// 18. Username with invalid char → 400 with the regex message
+{
+  const r = await hit("POST", "/api/sync/register", {
+    body: { username: "bad!name", password: "valid12345" },
+    jar: new Jar(),
+  });
+  check(r.status === 400 && r.body.code === "invalid_input",
+    `Invalid-char username returns 400 (got ${r.status} ${r.text})`);
+  check(r.body.error && r.body.error.includes("用户名") &&
+    (r.body.error.includes("字母") || r.body.error.includes("下划线")),
+    `Invalid-char username error references the allowed character set (got "${r.body.error}")`);
+}
+
+// 19. Username with CJK characters → 400 (regex only allows ASCII)
+{
+  const r = await hit("POST", "/api/sync/register", {
+    body: { username: "用户", password: "valid12345" },
+    jar: new Jar(),
+  });
+  check(r.status === 400 && r.body.code === "invalid_input",
+    `CJK username returns 400 (got ${r.status} ${r.text})`);
+}
+
+// 20. Same-origin whoami (Origin: https://home.douwuyou.cn) → 401, not 500.
+//     This is the regression test for the production-domain CORS fix.
+{
+  const r = await fetch(`${BASE}/api/sync/whoami`, {
+    headers: { origin: "https://home.douwuyou.cn" },
+  });
+  check(r.status === 401,
+    `Same-origin whoami (Origin: home.douwuyou.cn) returns 401 not 500 (got ${r.status})`);
+}
+
+// 21. Disallowed-origin whoami → 403 with code origin_not_allowed (not 500)
+{
+  const r = await fetch(`${BASE}/api/sync/whoami`, {
+    headers: { origin: "https://evil.example.com" },
+  });
+  let body = null;
+  try { body = await r.json(); } catch {}
+  check(r.status === 403,
+    `Disallowed-origin whoami returns 403 (got ${r.status})`);
+  check(body && body.code === "origin_not_allowed",
+    `Disallowed-origin whoami uses code=origin_not_allowed (got ${JSON.stringify(body)})`);
+}
+
 console.log("\nAll verify-sync checks passed against", BASE);
