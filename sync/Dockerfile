@@ -24,7 +24,8 @@ COPY --from=build /app/auth.mjs ./
 COPY --from=build /app/schemas.mjs ./
 COPY --from=build /app/config.mjs ./
 COPY --from=build /app/routes ./routes
-RUN addgroup -g 1000 sync && adduser -u 1000 -G sync -D sync
-USER sync
+# node:alpine already ships a `node` user with uid/gid 1000, so reuse it instead of
+# creating a new one (the previous RUN collided with that pre-existing user).
+USER node
 EXPOSE 3000
 CMD ["node", "server.mjs"]

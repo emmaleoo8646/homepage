@@ -34,7 +34,7 @@ services:
     mem_limit: 256m
     cpus: 0.5
     pids_limit: 64
-    user: "1000:1000"
+    user: "node"
     tmpfs:
       - /tmp
     environment:
