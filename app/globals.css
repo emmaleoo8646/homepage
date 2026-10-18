@@ -2292,6 +2292,38 @@ kbd {
   align-items: center;
   gap: 10px;
 }
+
+/* Bookmark grid: when a tile is being dragged and the cursor is hovering
+   empty space (no tile claims `dragOver`), the grid draws a dashed
+   outline and shows a centered hint so the user knows dropping there
+   will ungroup the dragged bookmark. Pointer events are disabled on
+   the hint so it never blocks the actual drop target. */
+.bookmark-grid,
+.home-grid {
+  position: relative;
+}
+.bookmark-drop-bg {
+  outline: 2px dashed rgba(120, 190, 255, 0.45);
+  outline-offset: -10px;
+  border-radius: 8px;
+  transition: outline-color 0.15s ease;
+}
+.bookmark-drop-bg::after {
+  content: "拖到此处移出分组";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--surface);
+  color: var(--muted-foreground);
+  padding: 8px 18px;
+  border-radius: 999px;
+  font-size: 13px;
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.18);
+  z-index: 1;
+}
 .icon-preview {
   width: 44px;
   height: 44px;

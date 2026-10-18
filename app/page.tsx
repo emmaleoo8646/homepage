@@ -595,6 +595,32 @@ export default function Page() {
       },
     });
   }
+  // Drag a folder member out into empty space → set its `folder` to null so
+  // it falls out of the group and renders as a standalone bookmark again.
+  // Undo mirrors `mergeWithToast`: snapshotted `prevFolder` is replayable.
+  function ungroupBookmark(id: string) {
+    const before = data.bookmarks.find((b) => b.id === id);
+    if (!before || !before.folder) return;
+    const prevFolder = before.folder;
+    update((d) => ({
+      ...d,
+      bookmarks: d.bookmarks.map((b) =>
+        b.id === id ? { ...b, folder: null } : b,
+      ),
+    }));
+    toast(`「${before.name}」已移出分组`, {
+      action: {
+        label: "撤销",
+        onClick: () =>
+          update((d) => ({
+            ...d,
+            bookmarks: d.bookmarks.map((b) =>
+              b.id === id ? { ...b, folder: prevFolder } : b,
+            ),
+          })),
+      },
+    });
+  }
   function openMerge(source: Bookmark, target: Bookmark) {
     if (source.category !== target.category) {
       toast.error("不能跨分类合并");
@@ -759,6 +785,10 @@ export default function Page() {
         onDragLeave={() => setDragOver(null)}
         onDrop={(e) => {
           e.preventDefault();
+          // Stop the section-level handler from running after a tile has
+          // claimed the drop (so dragging onto a tile doesn't also ungroup
+          // the source if `stopPropagation` accidentally fell through).
+          e.stopPropagation();
           const from = dragged ?? e.dataTransfer.getData("text/plain");
           setDragged(null);
           setDragOver(null);
@@ -895,6 +925,10 @@ export default function Page() {
           onDragLeave={() => setDragOver(null)}
           onDrop={(e) => {
             e.preventDefault();
+            // Stop the section's onDrop from also firing when a folder tile
+            // already handled the merge flow (without this, dropping onto a
+            // folder tile would also try to ungroup the source).
+            e.stopPropagation();
             const from = dragged ?? e.dataTransfer.getData("text/plain");
             setDragged(null);
             setDragOver(null);
@@ -1142,8 +1176,28 @@ export default function Page() {
             </form>
           </header>
           <section
-            className={`${category === "home" && data.settings.showWidgets ? "home-grid" : "bookmark-grid"}`}
+            className={`${category === "home" && data.settings.showWidgets ? "home-grid" : "bookmark-grid"} ${dragged && !dragOver ? "bookmark-drop-bg" : ""}`}
             aria-label={`${categoryNames[category]}网址与组件`}
+            onDragOver={(e) => {
+              // Required so the section receives `drop` events at all.
+              // We only allow drop when a tile is in flight; tiles can
+              // still claim drops themselves because they also call
+              // `preventDefault` and now `stopPropagation` in their own
+              // handlers.
+              if (dragged) e.preventDefault();
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              // tile handlers call `stopPropagation`, so reaching here
+              // means the user really did drop on empty space.
+              const from = e.dataTransfer.getData("text/plain");
+              setDragged(null);
+              setDragOver(null);
+              if (!from) return;
+              const source = data.bookmarks.find((b) => b.id === from);
+              if (!source || !source.folder) return;
+              ungroupBookmark(source.id);
+            }}
           >
             {category === "home" && data.settings.showWidgets && (
               <>
