@@ -1756,6 +1756,117 @@ kbd {
   color: var(--soft-ink);
   margin: 0 0 22px;
 }
+
+/* Open-Meteo live weather (added in v1) */
+.weather-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 18px;
+}
+.weather-search input {
+  flex: 1;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 14px;
+  color: inherit;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+.weather-search input:focus {
+  border-color: var(--ring);
+}
+.weather-search button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.weather-search button:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.weather-summary-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 36px 0;
+  color: var(--muted-foreground);
+}
+.weather-summary-loading svg {
+  color: var(--primary);
+}
+
+.weather-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin: 18px 0;
+}
+.weather-stats > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--muted);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.weather-stats svg {
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.weather-day-row {
+  display: grid;
+  grid-template-columns: 60px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 4px;
+  border-top: 1px dashed var(--border);
+  font-size: 14px;
+}
+.weather-day-row strong {
+  font-weight: 500;
+}
+.weather-day-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+
+.weather-tile-loading .weather-temp {
+  opacity: 0.5;
+}
+
+.weather-detail .muted-note {
+  text-align: center;
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+@media (max-width: 720px) {
+  .weather-stats {
+    grid-template-columns: 1fr 1fr;
+  }
+}
 .info-panel {
   text-align: center;
   padding: 12px 6px 20px;

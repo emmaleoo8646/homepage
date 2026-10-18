@@ -96,6 +96,8 @@ import {
   FolderMergeDialog,
   type MergeDraft,
 } from "@/components/folder-merge-dialog";
+import { WeatherTile } from "@/components/weather-tile";
+import { WeatherDetail } from "@/components/weather-detail";
 
 const categories = [
   { id: "home", name: "首页", Icon: Home },
@@ -1076,19 +1078,7 @@ export default function Page() {
             {category === "home" && data.settings.showWidgets && (
               <>
                 <Tile name="天气" position="weather-tile">
-                  <button
-                    onClick={() => setPanel("weather")}
-                    className="widget weather-card"
-                  >
-                    <span className="weather-temp">
-                      23°
-                      <Sun size={31} />
-                    </span>
-                    <span className="weather-place">
-                      广州<small>晴 21°～27°</small>
-                    </span>
-                    <span className="sample-label">示例</span>
-                  </button>
+                  <WeatherTile onSelect={() => setPanel("weather")} />
                 </Tile>
                 <Tile name="热搜榜" position="hot-tile">
                   <div className="widget hot-card">
@@ -1896,28 +1886,7 @@ export default function Page() {
                     </>
                   );
                 })()}
-              {panel === "weather" && (
-                <div className="weather-detail">
-                  <span className="example-pill">示例天气 · 非实时数据</span>
-                  <div className="weather-summary">
-                    <Sun size={56} />
-                    <strong>23°</strong>
-                    <div>
-                      广州<small>晴 · 21°～27°</small>
-                    </div>
-                  </div>
-                  <p>此版本展示示例天气，实际天气请查看天气服务。</p>
-                  <a
-                    href="https://www.weather.com.cn"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="primary-button"
-                  >
-                    <ExternalLink size={17} />
-                    查看中国天气网
-                  </a>
-                </div>
-              )}
+              {panel === "weather" && <WeatherDetail />}
               {panel === "transfer" && (
                 <div className="info-panel">
                   <Send size={42} />
