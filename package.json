@@ -11,6 +11,8 @@
     "build": "node scripts/run-framework.mjs build",
     "start": "node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js dev --config dist/server/wrangler.json --local --persist-to .wrangler/state --ip 127.0.0.1 --inspector-port 0",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
@@ -51,6 +53,7 @@
     "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
     "eslint-config-next": "16.3.4",
+    "jsdom": "^25.0.1",
     "json-rpc-2.0": "1.7.1",
     "raw-body": "3.0.2",
     "react-server-dom-webpack": "19.2.6",
@@ -59,6 +62,7 @@
     "typescript": "5.9.3",
     "vinext": "1.0.0-beta.5",
     "vite": "8.0.13",
+    "vitest": "^3.2.7",
     "wrangler": "4.92.0"
   },
   "type": "module",
