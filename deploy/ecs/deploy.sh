@@ -14,8 +14,22 @@ npm run build
 package=$(mktemp -d)
 trap 'rm -rf "$package"' EXIT
 COPYFILE_DISABLE=1 tar --no-xattrs -czf "$package/site.tar.gz" -C dist/client .
+
+# Build the sync container image and save it to the bundle.
+(cd sync && npm ci --omit=dev)
+docker build --tag homepage-sync:latest --file sync/Dockerfile sync/
+docker save --output "$package/sync-image.tar" homepage-sync:latest
+
 ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$host" "mkdir -p /opt/homepage/incoming/$release"
-scp -o BatchMode=yes -o StrictHostKeyChecking=yes "$package/site.tar.gz" deploy/ecs/compose.yaml deploy/ecs/nginx.conf deploy/ecs/http.conf deploy/ecs/https.conf deploy/ecs/install.sh "$host:/opt/homepage/incoming/$release/"
+scp -o BatchMode=yes -o StrictHostKeyChecking=yes \
+  "$package/site.tar.gz" \
+  "$package/sync-image.tar" \
+  deploy/ecs/compose.yaml \
+  deploy/ecs/nginx.conf \
+  deploy/ecs/http.conf \
+  deploy/ecs/https.conf \
+  deploy/ecs/install.sh \
+  "$host:/opt/homepage/incoming/$release/"
 scp -o BatchMode=yes -o StrictHostKeyChecking=yes .env.ecs.htpasswd "$host:/opt/homepage/incoming/$release/home.htpasswd"
 ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$host" "bash /opt/homepage/incoming/$release/install.sh $release"
 echo "Server installed. Once DNS is ready, complete HTTPS as described in deploy/ecs/README.md."

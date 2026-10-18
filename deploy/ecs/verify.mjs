@@ -43,3 +43,16 @@ check((await request(script[1], auth)).status === 200, "Authenticated JavaScript
 check((await request("/assets/night-city.jpg", auth)).status === 200, "Authenticated wallpaper loads");
 check((await request("/.env.ecs.login.json", auth)).status === 404, "Credential paths are not served");
 check((await request("/vinext-client-entry-manifest.json", auth)).status === 404, "Build metadata is not served");
+
+// --- sync service ---
+// /api/healthz is fronted by the gateway and bypasses auth_basic.
+const healthz = await request("/api/healthz");
+check(healthz.status === 200 && healthz.body.trim() === "ok",
+      "Anonymous /api/healthz returns ok");
+// /api/sync/* sits behind the session, not behind auth_basic.
+const anonSync = await request("/api/sync/whoami");
+check(anonSync.status === 401, "Anonymous /api/sync/whoami is rejected");
+// Regression: a misconfigured nginx that bolts auth_basic onto /api/sync/* would set
+// this header. The dual stack (HTTP Basic + sync session) must stay split.
+check(anonSync.headers["www-authenticate"] === undefined,
+      "/api/sync/whoami does not advertise HTTP Basic");

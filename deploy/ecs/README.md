@@ -44,4 +44,32 @@ node deploy/ecs/verify.mjs <ECS公网IPv4>
 
 ## 回退
 
-将 `/opt/homepage/current` 的符号链接切换到 `/opt/homepage/releases/` 下的上一版本，并执行 `docker compose -f /opt/homepage/compose.yaml up -d --force-recreate --no-deps web`。变更代理配置前先保存备份，执行 `docker exec family-diary-nginx-1 nginx -t` 成功后再 reload。
+将 `/opt/homepage/current` 的符号链接切换到 `/opt/homepage/releases/` 下的上一版本，并执行 `docker compose -f /opt/homepage/compose.yaml up -d --force-recreate --no-deps web sync`。变更代理配置前先保存备份，执行 `docker exec family-diary-nginx-1 nginx -t` 成功后再 reload。
+
+如果某一版同步服务出现严重问题并且需要彻底停用 sync：
+
+```sh
+docker compose -f /opt/homepage/compose.yaml stop sync
+docker rm -f homepage-sync
+sed -i '/HOMEPAGE-SYNC-ROUTES BEGIN/,/HOMEPAGE-SYNC-ROUTES END/d' /etc/family-diary/nginx-extra/homepage.conf
+docker exec family-diary-nginx-1 nginx -t && docker exec family-diary-nginx-1 nginx -s reload
+```
+
+静态站点不受影响；同步面板再次启用前需要重新部署包含正常 sync 镜像的版本。
+
+## 数据同步
+
+`homepage-sync` 容器与 `homepage-web` 共享 `family-diary_edge` 网络，提供 `/api/sync/*` 端点（注册、登录、状态读 / 写）。`auth_basic` 仅作用于内层 nginx 容器对外暴露的 `/`；同步请求经网关直接代理到 `homepage-sync:3000`，因此浏览器访问 `https://home.douwuyou.cn/` 仍弹窗，而 `https://home.douwuyou.cn/api/sync/whoami` 不触发 HTTP Basic —— 二者返回各自的 401 响应，分别来自 nginx 与 Fastify。
+
+会话密钥由 `install.sh` 首次运行时生成，保存在 `/opt/homepage/secrets/sync.env`（权限 600）。后续部署若发现格式不符会立即终止以避免覆盖。SQLite 数据库位于 `/opt/homepage/sync/data/sync.sqlite`，随其它发行版本一并备份。
+
+部署后可用两个脚本验证：
+
+```sh
+node deploy/ecs/verify.mjs              # 站点 + sync 健康检查
+node deploy/ecs/verify-sync.mjs         # 完整注册 / 登录 / 状态读写 / 冲突流程
+```
+
+`verify.mjs` 会同时校验 `auth_basic` 仅作用于静态站点（`/api/sync/whoami` 必须不带 `WWW-Authenticate` 头）。
+
+客户端面板入口：站点「设置」面板中的「数据同步」标签。跨设备编辑网址 / 待办时，本地停止输入约 2 秒后自动推送；遇到云端版本更新会暂停推送并提示选择保留哪份。

@@ -87,6 +87,7 @@ import {
   type CategoryId,
   type Settings,
 } from "@/lib/home-data";
+import { SyncPanel } from "@/components/sync-panel";
 
 const categories = [
   { id: "home", name: "首页", Icon: Home },
@@ -1288,6 +1289,7 @@ export default function Page() {
                     <TabsTrigger value="basic">基础设置</TabsTrigger>
                     <TabsTrigger value="wallpaper">壁纸</TabsTrigger>
                     <TabsTrigger value="search">搜索</TabsTrigger>
+                    <TabsTrigger value="sync">数据同步</TabsTrigger>
                   </TabsList>
                   <TabsContent value="basic">
                     <section className="settings-section">
@@ -1469,6 +1471,17 @@ export default function Page() {
                       <p className="shortcut-hint">
                         <kbd>/</kbd> 快速聚焦搜索框
                       </p>
+                    </section>
+                  </TabsContent>
+                  <TabsContent value="sync">
+                    <section className="settings-section">
+                      <h3>数据同步</h3>
+                      <SyncPanel
+                        data={data}
+                        setData={update}
+                        ready={ready}
+                        storageError={storageError}
+                      />
                     </section>
                   </TabsContent>
                 </Tabs>
