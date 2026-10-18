@@ -147,7 +147,7 @@ let firstStamp;
 // 6. GET state round-trips
 {
   const r = await hit("GET", "/api/sync/state", { jar });
-  check(r.status === 200 && r.body.note === "verify-sync payload" &&
+  check(r.status === 200 && r.body.blob.note === "verify-sync payload" &&
     r.body.updated_at === firstStamp,
     "GET state returns the payload we just wrote");
 }
