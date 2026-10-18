@@ -2,7 +2,7 @@
 
 目标域名为 `home.douwuyou.cn`。站点文件位于 ECS 的 `/opt/homepage/`，静态文件由独立的 `homepage-web` 容器提供；现有 Nginx 入口仅新增 `homepage.conf`。复用 `family-diary_edge` 网络、证书目录和续期服务。
 
-网站使用 HTTPS 和 Nginx HTTP Basic 登录保护。首次访问时浏览器弹出用户名与密码输入框；所有页面、脚本、图标与壁纸均需要验证。`/healthz` 只返回容器健康状态。页面个人数据继续保存在当前浏览器，不上传到 ECS。
+站点对外提供 HTTPS 静态页面，任何浏览器都可直接打开 `/`，无需账号或密码。`/healthz` 只返回容器健康状态。页面个人数据继续保存在当前浏览器，不上传到 ECS。可选的跨设备同步入口位于「设置 → 数据同步」，使用与 HTTP Basic 无关的 Fastify cookie 会话。
 
 ## 部署代码
 
@@ -14,7 +14,7 @@ bash deploy/ecs/deploy.sh alog-prod
 
 脚本执行类型检查和构建，将 `dist/client` 上传为独立版本，切换当前版本并重建本站容器。历史版本和配置备份保留在服务器。
 
-首次生成的登录名为 `home`；随机密码保存在本地 `.env.ecs.login.json`，文件权限为 600。密码哈希保存在 `.env.ecs.htpasswd`，上传后位于服务器 `/opt/homepage/secrets/home.htpasswd`。这些文件被 Git 忽略，不应提交、截图或复制到公开日志。后续部署保留原有密码；本地与服务器哈希不一致时停止部署。
+本部署不再开启 HTTP Basic 认证；`create-login.mjs` 仍保留在仓库中，作为未来重新启用 Basic 时使用的草稿脚本，运行时按需生成 `.env.ecs.login.json`（本地权限 600）与 `.env.ecs.htpasswd`，且对已存在的文件保持幂等（不覆盖、不报错）。这些文件由 `.gitignore` 的 `.env*` 规则忽略，不应提交、截图或复制到公开日志。如需恢复 Basic 认证：先在本机运行 `node deploy/ecs/create-login.mjs`，再恢复 `deploy.sh` 中对应的 SCP、`install.sh` / `compose.yaml` / `nginx.conf` 中相关行。
 
 ## DNS 与 HTTPS
 
@@ -40,7 +40,7 @@ node deploy/ecs/verify.mjs
 node deploy/ecs/verify.mjs <ECS公网IPv4>
 ```
 
-验收覆盖 HTTPS 有效性、HTTP 跳转、匿名与错误密码拒绝、已登录页面与资源，以及隐藏敏感文件路径。
+验收覆盖 HTTPS 有效性、HTTP 跳转、匿名访问页面与资源，以及隐藏敏感文件路径。`verify-sync.mjs` 覆盖注册 / 登录 / 状态读写 / 冲突流程。
 
 ## 回退
 
@@ -59,7 +59,7 @@ docker exec family-diary-nginx-1 nginx -t && docker exec family-diary-nginx-1 ng
 
 ## 数据同步
 
-`homepage-sync` 容器与 `homepage-web` 共享 `family-diary_edge` 网络，提供 `/api/sync/*` 端点（注册、登录、状态读 / 写）。`auth_basic` 仅作用于内层 nginx 容器对外暴露的 `/`；同步请求经网关直接代理到 `homepage-sync:3000`，因此浏览器访问 `https://home.douwuyou.cn/` 仍弹窗，而 `https://home.douwuyou.cn/api/sync/whoami` 不触发 HTTP Basic —— 二者返回各自的 401 响应，分别来自 nginx 与 Fastify。
+`homepage-sync` 容器与 `homepage-web` 共享 `family-diary_edge` 网络，提供 `/api/sync/*` 端点（注册、登录、状态读 / 写）。同步请求经网关直接代理到 `homepage-sync:3000`；`/` 不再触发 HTTP Basic。Fastify 的 401 由 cookie 会话缺失导致，与 nginx Basic 无关。
 
 会话密钥由 `install.sh` 首次运行时生成，保存在 `/opt/homepage/secrets/sync.env`（权限 600）。后续部署若发现格式不符会立即终止以避免覆盖。SQLite 数据库位于 `/opt/homepage/sync/data/sync.sqlite`，随其它发行版本一并备份。
 
@@ -70,6 +70,6 @@ node deploy/ecs/verify.mjs              # 站点 + sync 健康检查
 node deploy/ecs/verify-sync.mjs         # 完整注册 / 登录 / 状态读写 / 冲突流程
 ```
 
-`verify.mjs` 会同时校验 `auth_basic` 仅作用于静态站点（`/api/sync/whoami` 必须不带 `WWW-Authenticate` 头）。
+`verify.mjs` 同时断言 `/api/sync/whoami` 不带 `WWW-Authenticate` 头（同步会话是基于 Fastify cookie 的，与 HTTP Basic 解耦）。
 
 客户端面板入口：站点「设置」面板中的「数据同步」标签。跨设备编辑网址 / 待办时，本地停止输入约 2 秒后自动推送；遇到云端版本更新会暂停推送并提示选择保留哪份。

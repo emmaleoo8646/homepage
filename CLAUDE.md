@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 HiTab (我的起始页) — a Chinese-language personal startpage. Single client-rendered Next.js page that bookmarks, todos, notes, calendar, wallpaper, hot lists and a multi-engine search bar. Persistent state lives only in the browser under `hitab-personal:v1`; no built-in account or cloud sync. Two deployment surfaces:
 
 - **Sites (Cloudflare Workers via Vinext)** — used by the upstreamed repo.
-- **Aliyun ECS** — `home.douwuyou.cn`, HTTPS + Nginx HTTP Basic, see `deploy/ecs/README.md`.
+- **Aliyun ECS** — `home.douwuyou.cn`, HTTPS via outer Nginx gateway → inner static nginx container, see `deploy/ecs/README.md`. Sync is optional, behind a Fastify cookie session under `/api/sync/*`.
 
 The Chinese user-facing README (`README.md`) describes features and assets in more detail.
 
@@ -24,7 +24,7 @@ npm run start           # wrangler dev against dist/server/wrangler.json (uses .
 npm run lint            # eslint, ignores dist/ and .next/
 npx tsc --noEmit        # type check only
 npm run db:generate     # drizzle-kit migrations (only meaningful if db/schema.ts is populated)
-node deploy/ecs/verify.mjs [ipv4]   # smoke-test the ECS deployment (uses .env.ecs.login.json)
+node deploy/ecs/verify.mjs [ipv4]   # smoke-test the ECS deployment (anonymous against home.douwuyou.cn)
 bash deploy/ecs/install.sh alog-prod  # run the deploy pipeline
 ```
 
@@ -63,24 +63,24 @@ env.CONNECTORS (Worker service binding)
 
 Pipeline (`deploy/ecs/install.sh`, runs locally):
 
-1. `node deploy/ecs/create-login.mjs` — first run generates `.env.ecs.login.json` (random password) and `.env.ecs.htpasswd`; subsequent runs reuse and refuse to overwrite.
-2. `npx tsc --noEmit` + `npm run build`.
-3. Tar `dist/client/` (with `--no-xattrs` and `COPYFILE_DISABLE=1` to strip macOS metadata) and ship `compose.yaml`, `nginx.conf`, `http.conf`, `https.conf`, `install.sh`, `home.htpasswd` to `alog-prod:/opt/homepage/incoming/<sha14>-<utc>/`.
+1. `npx tsc --noEmit` + `npm run build`.
+2. Tar `dist/client/` (with `--no-xattrs` and `COPYFILE_DISABLE=1` to strip macOS metadata) and ship `compose.yaml`, `nginx.conf`, `http.conf`, `https.conf`, `install.sh` to `alog-prod:/opt/homepage/incoming/<sha14>-<utc>/`.
 
 Server-side (`deploy/ecs/deploy.sh`):
 
 - Extracts into `/opt/homepage/releases/<release>/`, atomically swaps `/opt/homepage/current` symlink.
-- Reconciles `/opt/homepage/secrets/home.htpasswd` (errors if local/server hash diverge).
 - `docker compose up -d --force-recreate --no-deps web` (nginx container, see `deploy/ecs/compose.yaml`).
 - Writes `/etc/family-diary/nginx-extra/homepage.conf` from `http.conf` + (if cert present) `https.conf`, runs `nginx -t` on both gateway and web, reloads.
-- Healthchecks via `wget http://127.0.0.1/healthz` (auth-bypassed).
+- Healthchecks via `wget http://127.0.0.1/healthz`.
 
-`deploy/ecs/verify.mjs` is the post-deploy smoke test: HTTP→HTTPS redirect, anonymous rejection on `/` and `/assets/*`, bad-password rejection, authenticated JS + wallpaper load, sensitive path 404s (`/.env.ecs.login.json`, `/vinext-client-entry-manifest.json`).
+`deploy/ecs/create-login.mjs` is a dormant idempotent script retained for any future HTTP Basic re-enable; it is NOT invoked from `deploy.sh` anymore.
+
+`deploy/ecs/verify.mjs` is the post-deploy smoke test: HTTP→HTTPS redirect, anonymous `200` on `/`, the JS bundle, and `/assets/night-city.jpg`, sensitive path 404s (`/.env.ecs.login.json`, `/vinext-client-entry-manifest.json`).
 
 ## Important repo-specific conventions
 
 - **`components/ui/**` and `hooks/use-mobile.ts` are vendored verbatim from shadcn@4.17.0.** `eslint.config.mjs` deliberately relaxes `@typescript-eslint/no-unused-vars`, `react-hooks/purity` and `react-hooks/set-state-in-effect` for these paths. Do not refactor them; extend via wrapper components in `components/` instead.
-- **Secrets under `.env.ecs.login.json` and `.env.ecs.htpasswd` are gitignored and chmod 600.** Do not log, screenshot, or commit them. The deploy refuses to proceed if local and server hashes diverge.
+- **`.env.ecs.login.json` and `.env.ecs.htpasswd` are gitignored and chmod 600**, but no longer shipped or referenced by the ECS deploy. They exist only as a dormant fallback for future HTTP Basic re-enable. Do not log, screenshot, or commit them. To re-enable Basic: see `deploy/ecs/README.md`.
 - **No tests.** Add a vitest harness and `npm test` script before relying on test-driven workflows.
 - **Drizzle schema is empty by default** (`db/schema.ts`); the D1 example lives in `examples/d1/db/schema.ts`. Only run `npm run db:generate` after adding a real schema, and only if `.openai/hosting.json` actually wires the `d1` binding.
 - **No `pages/` or app-router server routes beyond `layout.tsx`/`page.tsx`.** `next.config.ts` is static export — adding `getServerSideProps` or a server route will break the ECS build. All UI lives in `app/page.tsx`.

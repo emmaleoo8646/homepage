@@ -17,13 +17,10 @@ chmod 700 "$root/secrets"
 tar -xzf "$incoming/site.tar.gz" -C "$root/releases/$release"
 test -s "$root/releases/$release/index.html"
 
-# Keep the active login and private credentials out of release artifacts.
-if [ ! -f "$root/secrets/home.htpasswd" ]; then
-  install -m 644 "$incoming/home.htpasswd" "$root/secrets/home.htpasswd"
-elif ! cmp -s "$incoming/home.htpasswd" "$root/secrets/home.htpasswd"; then
-  echo "Existing server credentials differ; stopping without rotating them." >&2
-  exit 1
-fi
+# HTTP Basic was removed; the htpasswd file is no longer referenced or shipped.
+# Clean up any orphan from a previous release so /opt/homepage/secrets/ only
+# holds sync.env.
+rm -f "$root/secrets/home.htpasswd"
 
 # Sync service: load the saved image into the local Docker daemon.
 docker load -i "$incoming/sync-image.tar"
