@@ -16,8 +16,10 @@ trap 'rm -rf "$package"' EXIT
 COPYFILE_DISABLE=1 tar --no-xattrs -czf "$package/site.tar.gz" -C dist/client .
 
 # Build the sync container image and save it to the bundle.
+# Use buildx for cross-arch builds: deployers may run on Apple Silicon while the
+# ECS host is linux/amd64. Without --platform the saved tar would be unloadable.
 (cd sync && npm ci --omit=dev)
-docker build --tag homepage-sync:latest --file sync/Dockerfile sync/
+docker buildx build --platform linux/amd64 --tag homepage-sync:latest --load --file sync/Dockerfile sync/
 docker save --output "$package/sync-image.tar" homepage-sync:latest
 
 ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$host" "mkdir -p /opt/homepage/incoming/$release"
