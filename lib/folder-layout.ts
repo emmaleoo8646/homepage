@@ -1,47 +1,48 @@
 import type { Bookmark } from "./home-data";
 
 /**
- * One cell of a 2×2 folder layout. A "single" cell shows one full-size icon
+ * One cell of a folder layout. A "single" cell shows one full-size icon
  * (the typical case when the folder has few members). A "stack" cell shows
  * up to four mini icons in a 2×2 sub-grid (used once the folder overflows
- * past the 4-cell normal limit).
+ * past the 4-cell normal limit). Empty cells (no member, no Plus) are not
+ * represented at all — the grid just leaves the slot blank.
  */
 export type FolderCellSlot =
   | { kind: "single"; bookmark: Bookmark | null }
   | { kind: "stack"; bookmarks: Bookmark[]; overflow: number };
 
 /**
- * A folder's full layout as four physical cells, ordered:
- *   cells[0] = top-left      (1,1)
- *   cells[1] = top-right     (1,2)
- *   cells[2] = bottom-left   (2,1)
- *   cells[3] = bottom-right  (2,2)
- * The 2×2 layout is shared between the home entertainment widget and the
- * category-grid folder tile so they always look consistent.
+ * Shape of the box, in CSS-grid terms.
+ *   - 1x1: a single square (used for N=0 "empty folder" + N=1)
+ *   - 1x2: a single row of 2 cells (N=2)
+ *   - 2x2: the canonical 2×2 block (N=3+, with up to 4 cells + stacks)
  */
+export type LayoutMode = "1x1" | "1x2" | "2x2";
+
 export interface FolderLayout {
-  cells: [
-    FolderCellSlot,
-    FolderCellSlot,
-    FolderCellSlot,
-    FolderCellSlot,
-  ];
+  mode: LayoutMode;
+  /** Up to 4 populated cells. Empty slots are NOT rendered as `+`. */
+  cells: FolderCellSlot[];
 }
 
 const MAX_VISIBLE = 16;
 const STACK_CAP = 4;
 
 /**
- * Decide which members of `members` go into which cell. Implements the
- * spec:
- *   - 1 member  → (1,1) only
- *   - 2         → (1,1)(1,2)
- *   - 3-4       → 2×2 all single
- *   - 5-7       → TL/TR/BL single, BR packs members 4..N
- *   - 8-10      → TL/TR single, BL+BR pack
- *   - 11-13     → TL single, TR/BL/BR pack
- *   - 14-16     → all four cells pack
- *   - >16       → visible 16 + overflow badge on the last stack
+ * Decide which members of `members` go into which cell, and the overall
+ * box shape. Always renders exactly as many cells as there are content
+ * slots — empty placeholders are intentionally omitted so the user never
+ * sees a stray `+` icon next to real bookmarks.
+ *
+ *   - 1  → 1×1 single
+ *   - 2  → 1×2 (single row, no empty cells)
+ *   - 3  → 2×2 with three cells filled; cell (2,2) is naturally blank
+ *   - 4  → 2×2 four singles
+ *   - 5-7   → TL/TR/BL single, BR stacks members 4..N
+ *   - 8-10  → TL/TR single, BL/BR stack
+ *   - 11-13 → TL single, TR/BL/BR stack
+ *   - 14-16 → all four cells are stacks
+ *   - >16   → same as 14-16, last stack carries a `+N` badge
  */
 export function layoutMembers(members: Bookmark[]): FolderLayout {
   const totalCount = members.length;
@@ -49,41 +50,54 @@ export function layoutMembers(members: Bookmark[]): FolderLayout {
   const visible = members.slice(0, MAX_VISIBLE);
   const totalShown = visible.length;
 
-  const emptySingle = (): FolderCellSlot => ({
+  const idx = { i: 0 };
+  const takeSingle = (): FolderCellSlot => {
+    const m = visible[idx.i++] ?? null;
+    return { kind: "single", bookmark: m };
+  };
+  const takeStack = (cap = STACK_CAP): FolderCellSlot => {
+    const chunk = visible.slice(idx.i, idx.i + cap);
+    idx.i += chunk.length;
+    return { kind: "stack", bookmarks: chunk, overflow: 0 };
+  };
+  const takeEmptyPlus = (): FolderCellSlot => ({
     kind: "single",
     bookmark: null,
   });
 
-  const idxRef = { i: 0 };
-  // Pull next 1..STACK_CAP members as a stack; the caller decides which
-  // cell to drop them in (so we keep the layout decision in one place).
-  const takeStack = (): FolderCellSlot => {
-    const chunk = visible.slice(idxRef.i, idxRef.i + STACK_CAP);
-    idxRef.i += chunk.length;
-    return { kind: "stack", bookmarks: chunk, overflow: 0 };
-  };
-  const takeSingle = (): FolderCellSlot => {
-    const m = visible[idxRef.i++] ?? null;
-    return { kind: "single", bookmark: m };
-  };
-
+  let mode: LayoutMode;
   let cells: FolderCellSlot[];
   if (totalShown <= 0) {
-    cells = [emptySingle(), emptySingle(), emptySingle(), emptySingle()];
-  } else if (totalShown <= 4) {
+    mode = "1x1";
+    cells = [takeEmptyPlus()];
+  } else if (totalShown === 1) {
+    mode = "1x1";
+    cells = [takeSingle()];
+  } else if (totalShown === 2) {
+    mode = "1x2";
+    cells = [takeSingle(), takeSingle()];
+  } else if (totalShown === 3) {
+    mode = "2x2";
+    cells = [takeSingle(), takeSingle(), takeSingle()];
+  } else if (totalShown === 4) {
+    mode = "2x2";
     cells = [takeSingle(), takeSingle(), takeSingle(), takeSingle()];
   } else if (totalShown <= 7) {
-    cells = [takeSingle(), takeSingle(), takeSingle(), takeStack()];
+    mode = "2x2";
+    cells = [takeSingle(), takeSingle(), takeSingle(), takeStack(4)];
   } else if (totalShown <= 10) {
-    cells = [takeSingle(), takeSingle(), takeStack(), takeStack()];
+    mode = "2x2";
+    cells = [takeSingle(), takeSingle(), takeStack(4), takeStack(4)];
   } else if (totalShown <= 13) {
-    cells = [takeSingle(), takeStack(), takeStack(), takeStack()];
+    mode = "2x2";
+    cells = [takeSingle(), takeStack(4), takeStack(4), takeStack(4)];
   } else {
-    cells = [takeStack(), takeStack(), takeStack(), takeStack()];
+    mode = "2x2";
+    cells = [takeStack(4), takeStack(4), takeStack(4), takeStack(4)];
   }
 
   // Attach the overflow badge to the last stack cell so a folder with
-  // >16 members clearly shows "more available".
+  // >16 members clearly shows "+N more".
   if (overflow > 0) {
     const lastStack = [...cells].reverse().find((c) => c.kind === "stack");
     if (lastStack && lastStack.kind === "stack") {
@@ -91,5 +105,5 @@ export function layoutMembers(members: Bookmark[]): FolderLayout {
     }
   }
 
-  return { cells: cells as FolderLayout["cells"] };
+  return { mode, cells };
 }

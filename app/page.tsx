@@ -854,11 +854,35 @@ export default function Page() {
   }
   function renderFolder(folder: Folder) {
     const members = data.bookmarks.filter((b) => b.folder === folder.id);
+    const layout = layoutMembers(members);
+
+    // Inner .folder-icons grid template — what N looks like inside the box.
+    const innerTemplate =
+      layout.mode === "1x1"
+        ? { gridTemplateColumns: "60px", gridTemplateRows: "60px" }
+        : layout.mode === "1x2"
+          ? { gridTemplateColumns: "repeat(2, 60px)" }
+          : {
+              gridTemplateColumns: "repeat(2, 60px)",
+              gridTemplateRows: "repeat(2, 60px)",
+            };
+
+    // Outer <Tile> grid placement — covers the right cells in the home-grid /
+    // bookmark-grid. Inline style overrides `.folder-tile-inline` defaults so a
+    // 2-member folder is a 1×2 rectangle instead of a square with empty cells.
+    const tileBoxSize =
+      layout.mode === "1x1"
+        ? { gridColumn: "span 1", gridRow: "span 1" }
+        : layout.mode === "1x2"
+          ? { gridColumn: "span 2", gridRow: "span 1" }
+          : { gridColumn: "span 2", gridRow: "span 2" };
+
     return (
       <Tile
         key={folder.id}
         name={folder.name}
         position={`folder-tile-inline ${dragOver === folder.id ? "drop-target" : ""}`}
+        {...tileBoxSize}
       >
         <button
           className="widget folder-card"
@@ -903,58 +927,55 @@ export default function Page() {
             }
           }}
         >
-          <div className="folder-icons">
-            {(() => {
-              const layout = layoutMembers(members);
-              return layout.cells.map((cell, ci) => {
-                if (cell.kind === "single") {
-                  return (
-                    <div
-                      className="folder-icon"
-                      style={{
-                        background:
-                          iconColors[cell.bookmark?.icon ?? ""] ?? "#fff",
-                      }}
-                      key={ci}
-                    >
-                      {cell.bookmark ? (
-                        <IconImage
-                          icon={cell.bookmark.icon}
-                          name={cell.bookmark.name}
-                          url={cell.bookmark.url}
-                        />
-                      ) : (
-                        <Plus size={30} />
-                      )}
-                    </div>
-                  );
-                }
+          <div className="folder-icons" style={innerTemplate}>
+            {layout.cells.map((cell, ci) => {
+              if (cell.kind === "single") {
                 return (
                   <div
-                    className="folder-icon folder-icon-stack"
-                    style={{ background: "rgba(255,255,255,0.18)" }}
+                    className="folder-icon"
+                    style={{
+                      background:
+                        iconColors[cell.bookmark?.icon ?? ""] ?? "#fff",
+                    }}
                     key={ci}
                   >
-                    {cell.bookmarks.map((m) => (
-                      <div
-                        className="folder-icon-stack-cell"
-                        style={{
-                          background: iconColors[m.icon] ?? "#fff",
-                        }}
-                        key={m.id}
-                      >
-                        <IconImage icon={m.icon} name={m.name} url={m.url} />
-                      </div>
-                    ))}
-                    {cell.overflow > 0 && (
-                      <span className="folder-overflow-badge">
-                        +{cell.overflow}
-                      </span>
+                    {cell.bookmark ? (
+                      <IconImage
+                        icon={cell.bookmark.icon}
+                        name={cell.bookmark.name}
+                        url={cell.bookmark.url}
+                      />
+                    ) : (
+                      <Plus size={30} />
                     )}
                   </div>
                 );
-              });
-            })()}
+              }
+              return (
+                <div
+                  className="folder-icon folder-icon-stack"
+                  style={{ background: "rgba(255,255,255,0.18)" }}
+                  key={ci}
+                >
+                  {cell.bookmarks.map((m) => (
+                    <div
+                      className="folder-icon-stack-cell"
+                      style={{
+                        background: iconColors[m.icon] ?? "#fff",
+                      }}
+                      key={m.id}
+                    >
+                      <IconImage icon={m.icon} name={m.name} url={m.url} />
+                    </div>
+                  ))}
+                  {cell.overflow > 0 && (
+                    <span className="folder-overflow-badge">
+                      +{cell.overflow}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </button>
         <DropdownMenu>
