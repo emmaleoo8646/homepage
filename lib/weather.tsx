@@ -176,9 +176,14 @@ type IpGeoResult = {
 };
 async function ipLookup(signal?: AbortSignal): Promise<WeatherLocation | null> {
   const timeout = AbortSignal.timeout(FETCH_TIMEOUT_MS);
-  const composed = signal
-    ? AbortSignal.any([signal, timeout])
-    : timeout;
+  // Feature-detect `AbortSignal.any`: it's missing in jsdom's test
+  // env even though Node 22 ships it. Fall back to the outer signal
+  // (cancelled on hook unmount) — we lose the 8s ceiling in tests,
+  // but production browsers will hit the `AbortSignal.any` branch.
+  const composed: AbortSignal =
+    signal && typeof AbortSignal.any === "function"
+      ? AbortSignal.any([signal, timeout])
+      : (signal ?? timeout);
   try {
     const res = await fetch(IP_GEO_URL, { signal: composed });
     if (!res.ok) return null;
@@ -215,9 +220,11 @@ async function geocode(
   const trimmed = query.trim();
   if (!trimmed) return null;
   const timeout = AbortSignal.timeout(FETCH_TIMEOUT_MS);
-  const composed = signal
-    ? AbortSignal.any([signal, timeout])
-    : timeout;
+  // See ipLookup above — `AbortSignal.any` isn't available in jsdom.
+  const composed: AbortSignal =
+    signal && typeof AbortSignal.any === "function"
+      ? AbortSignal.any([signal, timeout])
+      : (signal ?? timeout);
   try {
     const url = `${GEOCODING_URL}?name=${encodeURIComponent(
       trimmed,
@@ -309,9 +316,11 @@ export async function fetchForecast(
   }
 
   const timeout = AbortSignal.timeout(FETCH_TIMEOUT_MS);
-  const composed = signal
-    ? AbortSignal.any([signal, timeout])
-    : timeout;
+  // See ipLookup above — `AbortSignal.any` isn't available in jsdom.
+  const composed: AbortSignal =
+    signal && typeof AbortSignal.any === "function"
+      ? AbortSignal.any([signal, timeout])
+      : (signal ?? timeout);
 
   try {
     const url =
@@ -479,6 +488,10 @@ export function useWeather(): UseWeatherResult {
       return;
     }
     writeCachedLocation(geo);
+    // Drop the module-level sharedLocationPromise so the next effect run
+    // re-reads the cache (otherwise it would resolve to the previous,
+    // pre-setCity city).
+    sharedLocationPromise = null;
     setLocation(geo);
     setBump((b) => b + 1);
   }, []);
@@ -494,6 +507,10 @@ export function useWeather(): UseWeatherResult {
       return;
     }
     writeCachedLocation(loc);
+    // Drop the module-level sharedLocationPromise — see setCity above
+    // for why this is required for the next effect to read the new
+    // cache rather than reuse a stale promise.
+    sharedLocationPromise = null;
     setLocation(loc);
     setBump((b) => b + 1);
   }, []);
