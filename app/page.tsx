@@ -103,6 +103,13 @@ import {
   findBookmark,
   findFolder,
 } from "@/lib/folder-actions";
+import {
+  applyAppendBookmarkToState,
+  applyUpdateBookmarkToState,
+  applyRemoveBookmarkToState,
+  applyUndoRemoveBookmarkToState,
+  applyReorderToState,
+} from "@/lib/bookmark-actions";
 import { SyncPanel } from "@/components/sync-panel";
 import { useCachedSyncUser } from "@/lib/sync-state";
 import {
@@ -338,7 +345,7 @@ export default function Page() {
   const createBookmark = useCallback(
     (b: Bookmark) => {
       const parsed = bookmarkSchema.parse(b);
-      update((d) => ({ ...d, bookmarks: [...d.bookmarks, parsed] }));
+      update((d) => applyAppendBookmarkToState(d, parsed));
     },
     [update],
   );
@@ -503,46 +510,26 @@ export default function Page() {
       return;
     }
     if (editing)
-      update((d) => ({
-        ...d,
-        bookmarks: d.bookmarks.map((b) =>
-          b.id === editing.id ? parsed.data : b,
-        ),
-      }));
+      update((d) =>
+        applyUpdateBookmarkToState(d, editing.id, parsed.data),
+      );
     else createBookmark(parsed.data);
     setPanel(null);
     toast.success(editing ? "网址已更新" : "网址已添加");
   }
   function removeBookmark(b: Bookmark) {
     const index = data.bookmarks.findIndex((v) => v.id === b.id);
-    update((d) => ({
-      ...d,
-      bookmarks: d.bookmarks.filter((v) => v.id !== b.id),
-    }));
+    update((d) => applyRemoveBookmarkToState(d, b.id));
     toast("网址已删除", {
       action: {
         label: "撤销",
         onClick: () =>
-          update((d) => {
-            if (d.bookmarks.some((v) => v.id === b.id)) return d;
-            const next = [...d.bookmarks];
-            next.splice(index, 0, b);
-            return { ...d, bookmarks: next };
-          }),
+          update((d) => applyUndoRemoveBookmarkToState(d, b, index)),
       },
     });
   }
   function reorder(from: string, to: string) {
-    if (from === to) return;
-    update((d) => {
-      const next = [...d.bookmarks];
-      const a = next.findIndex((b) => b.id === from),
-        b = next.findIndex((v) => v.id === to);
-      if (a < 0 || b < 0) return d;
-      const [item] = next.splice(a, 1);
-      next.splice(b, 0, item);
-      return { ...d, bookmarks: next };
-    });
+    update((d) => applyReorderToState(d, from, to));
   }
   function moveBookmark(b: Bookmark, direction: number) {
     const list = data.bookmarks.filter(
