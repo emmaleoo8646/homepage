@@ -43,8 +43,15 @@ export function FolderMergeDialog({
   draft,
   onConfirm,
 }: MergeDialogProps) {
-  const [name, setName] = useState("新建分组");
-  const [mode, setMode] = useState<"new" | "join">("new");
+  // Lazy initializers so the first render's default reflects `draft`
+  // (not a stale hardcoded "new" / "新建分组"). The closed→open
+  // transition below catches re-opens after the draft has changed.
+  const [name, setName] = useState(
+    () => draft?.targetFolder?.name ?? "新建分组",
+  );
+  const [mode, setMode] = useState<"new" | "join">(
+    () => (draft?.targetFolder ? "join" : "new"),
+  );
   const [prevOpen, setPrevOpen] = useState(open);
 
   // Reset form fields when the dialog transitions closed → open so each

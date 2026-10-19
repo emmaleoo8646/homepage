@@ -22,6 +22,7 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
+    setupFiles: ["./vitest.setup.ts"],
     include: ["lib/**/*.test.{ts,tsx}", "components/**/*.test.{ts,tsx}"],
     // Skip the dependency-installed `node_modules`, build output, etc.
     exclude: [
