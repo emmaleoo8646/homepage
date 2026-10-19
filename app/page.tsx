@@ -4,6 +4,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type FormEvent,
   type ReactNode,
 } from "react";
@@ -93,6 +94,8 @@ import {
 import {
   applyMergeToState,
   applyUndoMergeToState,
+  applyBookmarkIntoFolderToState,
+  applyUndoBookmarkIntoFolderToState,
   applyUngroupToState,
   applyUndoUngroupToState,
   applyRemoveFolderToState,
@@ -194,13 +197,15 @@ function Tile({
   name,
   position,
   children,
+  style,
 }: {
   name: string;
   position: string;
   children: ReactNode;
+  style?: CSSProperties;
 }) {
   return (
-    <div className={`tile ${position}`}>
+    <div className={`tile ${position}`} style={style}>
       <div className="tile-surface">{children}</div>
       <span className="tile-label">{name}</span>
     </div>
@@ -870,7 +875,7 @@ export default function Page() {
         key={folder.id}
         name={folder.name}
         position={`folder-tile-inline ${dragOver === folder.id ? "drop-target" : ""}`}
-        {...tileBoxSize}
+        style={tileBoxSize}
       >
         <button
           className="widget folder-card"
@@ -901,41 +906,66 @@ export default function Page() {
               toast("已在此分组中");
               return;
             }
-            const target = members[0];
-            if (target) {
-              // Reuse `openMerge` so the user can rename the folder or pick
-              // an existing one via the dialog (default action: drop straight
-              // into this folder).
-              openMerge(source, target);
-            } else {
-              // Empty folder: just place the source — no merge dialog needed.
-              update((d) => ({
-                ...d,
-                bookmarks: d.bookmarks.map((b) =>
-                  b.id === source.id ? { ...b, folder: folder.id } : b,
-                ),
-              }));
-              toast.success(`已将「${source.name}」加入「${folder.name}」`);
-            }
+            // Drop onto a folder → direct merge, no merge dialog. Mirrors the
+            // cover-icon → folder path so users can rearrange groups by
+            // dragging without first opening the folder panel.
+            const prevFolder = source.folder ?? null;
+            update((d) =>
+              applyBookmarkIntoFolderToState(d, source.id, folder.id),
+            );
+            toast(`「${source.name}」已加入「${folder.name}」`, {
+              action: {
+                label: "撤销",
+                onClick: () =>
+                  update((d) =>
+                    applyUndoBookmarkIntoFolderToState(
+                      d,
+                      source.id,
+                      prevFolder,
+                    ),
+                  ),
+              },
+            });
           }}
         >
           <div className="folder-icons" style={innerTemplate}>
             {layout.cells.map((cell, ci) => {
               if (cell.kind === "single") {
+                const bm = cell.bookmark;
+                // Empty placeholder cells (N=0) stay non-draggable so the
+                // click still opens the folder instead of starting a drag.
                 return (
                   <div
                     className="folder-icon"
                     style={{
                       background:
-                        iconColors[cell.bookmark?.icon ?? ""] ?? "#fff",
+                        iconColors[bm?.icon ?? ""] ?? "#fff",
                     }}
                     key={ci}
+                    draggable={bm != null}
+                    onDragStart={
+                      bm
+                        ? (e) => {
+                            setDragged(bm.id);
+                            e.dataTransfer.setData("text/plain", bm.id);
+                            e.dataTransfer.effectAllowed = "move";
+                          }
+                        : undefined
+                    }
+                    onDragEnd={
+                      bm
+                        ? () => {
+                            setDragged(null);
+                            setDragOver(null);
+                          }
+                        : undefined
+                    }
                   >
-                    {cell.bookmark ? (
+                    {bm ? (
                       <IconImage
-                        icon={cell.bookmark.icon}
-                        name={cell.bookmark.name}
-                        url={cell.bookmark.url}
+                        icon={bm.icon}
+                        name={bm.name}
+                        url={bm.url}
                       />
                     ) : (
                       <Plus size={30} />
@@ -956,6 +986,16 @@ export default function Page() {
                         background: iconColors[m.icon] ?? "#fff",
                       }}
                       key={m.id}
+                      draggable
+                      onDragStart={(e) => {
+                        setDragged(m.id);
+                        e.dataTransfer.setData("text/plain", m.id);
+                        e.dataTransfer.effectAllowed = "move";
+                      }}
+                      onDragEnd={() => {
+                        setDragged(null);
+                        setDragOver(null);
+                      }}
                     >
                       <IconImage icon={m.icon} name={m.name} url={m.url} />
                     </div>

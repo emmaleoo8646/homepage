@@ -63,6 +63,39 @@ export function applyUndoMergeToState(
   };
 }
 
+/** Move a single bookmark into `folderId`. No-op if the id is unknown —
+ *  state stays referentially new (returns next) so undo replays safely and
+ *  unrelated callers can `===` against the previous object identity. */
+export function applyBookmarkIntoFolderToState(
+  state: HomeState,
+  bookmarkId: string,
+  folderId: string,
+): HomeState {
+  return {
+    ...state,
+    bookmarks: state.bookmarks.map((b) =>
+      b.id === bookmarkId ? { ...b, folder: folderId } : b,
+    ),
+  };
+}
+
+/** Reverse `applyBookmarkIntoFolderToState` using `prevFolder` snapshotted
+ *  at drop time (concurrent edits could shift the source FK in between).
+ *  `prevFolder === null` is the "was standalone" case — we faithfully
+ *  restore it instead of coercing to `""`. */
+export function applyUndoBookmarkIntoFolderToState(
+  state: HomeState,
+  bookmarkId: string,
+  prevFolder: string | null,
+): HomeState {
+  return {
+    ...state,
+    bookmarks: state.bookmarks.map((b) =>
+      b.id === bookmarkId ? { ...b, folder: prevFolder } : b,
+    ),
+  };
+}
+
 /** Drop a single bookmark out of its folder (sets folder FK to null). */
 export function applyUngroupToState(
   state: HomeState,

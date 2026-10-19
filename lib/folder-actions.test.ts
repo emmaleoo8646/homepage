@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   applyMergeToState,
   applyUndoMergeToState,
+  applyBookmarkIntoFolderToState,
+  applyUndoBookmarkIntoFolderToState,
   applyUngroupToState,
   applyUndoUngroupToState,
   applyRemoveFolderToState,
@@ -307,6 +309,92 @@ describe("applyNewFolderToState + makeFolder", () => {
   it("makeFolder produces a well-typed Folder row", () => {
     const f = makeFolder("x", "y", "design");
     expect(f).toEqual({ id: "x", name: "y", category: "design" });
+  });
+});
+
+// ------------------------------------------------------------------
+// applyBookmarkIntoFolderToState
+// ------------------------------------------------------------------
+
+describe("applyBookmarkIntoFolderToState", () => {
+  it("moves the target bookmark into folderId", () => {
+    const state = stateWith([
+      bm({ id: "a", folder: null }),
+      bm({ id: "b", folder: "f-a" }),
+    ]);
+    const next = applyBookmarkIntoFolderToState(state, "a", "f-a");
+    expect(next.bookmarks.find((x) => x.id === "a")?.folder).toBe("f-a");
+    expect(next.bookmarks.find((x) => x.id === "b")?.folder).toBe("f-a");
+  });
+
+  it("is idempotent when the bookmark already lives in folderId (still updates FK to the same value)", () => {
+    const state = stateWith([bm({ id: "a", folder: "f-a" })]);
+    const next = applyBookmarkIntoFolderToState(state, "a", "f-a");
+    expect(next.bookmarks.find((x) => x.id === "a")?.folder).toBe("f-a");
+  });
+
+  it("leaves unrelated bookmarks' folder FKs untouched", () => {
+    const state = stateWith([
+      bm({ id: "a", folder: null }),
+      bm({ id: "c", folder: "f-b" }),
+    ]);
+    const next = applyBookmarkIntoFolderToState(state, "a", "f-a");
+    expect(next.bookmarks.find((x) => x.id === "c")?.folder).toBe("f-b");
+  });
+
+  it("is a no-op on a missing bookmark id (returns next, content unchanged)", () => {
+    const state = stateWith([bm({ id: "a", folder: null })]);
+    const next = applyBookmarkIntoFolderToState(state, "ghost", "f-a");
+    expect(next.bookmarks).toEqual(state.bookmarks);
+    expect(next).not.toBe(state);
+  });
+
+  it("returns a new state object (does not mutate)", () => {
+    const state = stateWith([bm({ id: "a", folder: null })]);
+    const next = applyBookmarkIntoFolderToState(state, "a", "f-a");
+    expect(next).not.toBe(state);
+    expect(next.bookmarks).not.toBe(state.bookmarks);
+    expect(state.bookmarks.find((x) => x.id === "a")?.folder).toBeNull();
+  });
+});
+
+describe("applyUndoBookmarkIntoFolderToState", () => {
+  it("restores a non-null prevFolder on the moved bookmark", () => {
+    const state = stateWith([bm({ id: "a", folder: "f-old" })]);
+    const next = applyBookmarkIntoFolderToState(state, "a", "f-new");
+    const back = applyUndoBookmarkIntoFolderToState(next, "a", "f-old");
+    expect(back.bookmarks.find((x) => x.id === "a")?.folder).toBe("f-old");
+  });
+
+  it("restores a null prevFolder (was standalone before the move)", () => {
+    const state = stateWith([bm({ id: "a", folder: null })]);
+    const next = applyBookmarkIntoFolderToState(state, "a", "f-new");
+    const back = applyUndoBookmarkIntoFolderToState(next, "a", null);
+    expect(back.bookmarks.find((x) => x.id === "a")?.folder).toBeNull();
+  });
+
+  it("round-trips bookmarkIntoFolder ↔ undoBookmarkIntoFolder with null prev", () => {
+    const state = stateWith([bm({ id: "a", folder: null })]);
+    const moved = applyBookmarkIntoFolderToState(state, "a", "f-new");
+    const reverted = applyUndoBookmarkIntoFolderToState(moved, "a", null);
+    expect(reverted.bookmarks).toEqual(state.bookmarks);
+  });
+
+  it("is a no-op on a missing bookmark id (returns next, content unchanged)", () => {
+    const state = stateWith([bm({ id: "a", folder: "f-a" })]);
+    const next = applyUndoBookmarkIntoFolderToState(state, "ghost", "f-old");
+    expect(next.bookmarks).toEqual(state.bookmarks);
+    expect(next).not.toBe(state);
+  });
+
+  it("leaves unrelated bookmarks' folder FKs untouched", () => {
+    const state = stateWith([
+      bm({ id: "a", folder: "f-old" }),
+      bm({ id: "c", folder: "f-b" }),
+    ]);
+    const next = applyBookmarkIntoFolderToState(state, "a", "f-new");
+    const back = applyUndoBookmarkIntoFolderToState(next, "a", "f-old");
+    expect(back.bookmarks.find((x) => x.id === "c")?.folder).toBe("f-b");
   });
 });
 
