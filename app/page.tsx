@@ -90,6 +90,19 @@ import {
   type CategoryId,
   type Settings,
 } from "@/lib/home-data";
+import {
+  applyMergeToState,
+  applyUndoMergeToState,
+  applyUngroupToState,
+  applyUndoUngroupToState,
+  applyRemoveFolderToState,
+  applyRenameFolderToState,
+  applyNewFolderToState,
+  snapshotMergeUndo,
+  makeFolder,
+  findBookmark,
+  findFolder,
+} from "@/lib/folder-actions";
 import { SyncPanel } from "@/components/sync-panel";
 import { useCachedSyncUser } from "@/lib/sync-state";
 import {
@@ -554,44 +567,32 @@ export default function Page() {
   // source is moved out of any old folder it was in, and both source and target
   // are written to point at `folderId`. If `folderId` references a brand-new
   // folder, the caller is responsible for creating it before calling this.
-  function applyMerge(sourceId: string, targetId: string, folderId: string) {
-    update((d) => ({
-      ...d,
-      bookmarks: d.bookmarks.map((b) =>
-        b.id === sourceId || b.id === targetId
-          ? { ...b, folder: folderId }
-          : b,
-      ),
-    }));
-  }
-  // Snapshot the relevant slice of state before applying the merge so the toast
-  // "撤销" button can roll back cleanly (including rolling back a freshly-
-  // created folder row from `folders`).
+  // All folder/DnD state transforms live in `lib/folder-actions.ts` as
+  // pure \`(state, ...) -> state\` functions (unit-tested in
+  // `lib/folder-actions.test.ts`). The wrappers here just compose them
+  // with React's \`setData\` setter and sonner's \`toast\`.
   function mergeWithToast(
     sourceId: string,
     targetId: string,
     folderId: string,
     folderName: string,
   ) {
-    const prevSourceFolder =
-      data.bookmarks.find((b) => b.id === sourceId)?.folder ?? null;
-    const prevTargetFolder =
-      data.bookmarks.find((b) => b.id === targetId)?.folder ?? null;
-    const prevFolders = data.folders;
-    applyMerge(sourceId, targetId, folderId);
+    const undo = snapshotMergeUndo(data, sourceId, targetId);
+    update((d) => applyMergeToState(d, sourceId, targetId, folderId));
     toast(`已合并到「${folderName}」`, {
       action: {
         label: "撤销",
         onClick: () =>
-          update((d) => ({
-            ...d,
-            bookmarks: d.bookmarks.map((b) => {
-              if (b.id === sourceId) return { ...b, folder: prevSourceFolder };
-              if (b.id === targetId) return { ...b, folder: prevTargetFolder };
-              return b;
-            }),
-            folders: prevFolders,
-          })),
+          update((d) =>
+            applyUndoMergeToState(
+              d,
+              sourceId,
+              targetId,
+              undo.sourcePrev,
+              undo.targetPrev,
+              undo.prevFolders,
+            ),
+          ),
       },
     });
   }
@@ -599,25 +600,14 @@ export default function Page() {
   // it falls out of the group and renders as a standalone bookmark again.
   // Undo mirrors `mergeWithToast`: snapshotted `prevFolder` is replayable.
   function ungroupBookmark(id: string) {
-    const before = data.bookmarks.find((b) => b.id === id);
+    const before = findBookmark(data, id);
     if (!before || !before.folder) return;
     const prevFolder = before.folder;
-    update((d) => ({
-      ...d,
-      bookmarks: d.bookmarks.map((b) =>
-        b.id === id ? { ...b, folder: null } : b,
-      ),
-    }));
+    update((d) => applyUngroupToState(d, id));
     toast(`「${before.name}」已移出分组`, {
       action: {
         label: "撤销",
-        onClick: () =>
-          update((d) => ({
-            ...d,
-            bookmarks: d.bookmarks.map((b) =>
-              b.id === id ? { ...b, folder: prevFolder } : b,
-            ),
-          })),
+        onClick: () => update((d) => applyUndoUngroupToState(d, id, prevFolder)),
       },
     });
   }
@@ -640,13 +630,8 @@ export default function Page() {
     if (!mergeDraft) return;
     if (input.mode === "new") {
       const folderId = uid();
-      update((d) => ({
-        ...d,
-        folders: [
-          ...d.folders,
-          { id: folderId, name: input.name, category: mergeDraft.category },
-        ],
-      }));
+      const folder = makeFolder(folderId, input.name, mergeDraft.category);
+      update((d) => applyNewFolderToState(d, folder));
       mergeWithToast(
         mergeDraft.source.id,
         mergeDraft.target.id,
@@ -654,7 +639,7 @@ export default function Page() {
         input.name,
       );
     } else {
-      const folder = data.folders.find((f) => f.id === input.folderId);
+      const folder = findFolder(data, input.folderId);
       if (!folder) {
         setMergeOpen(false);
         setMergeDraft(null);
@@ -674,26 +659,12 @@ export default function Page() {
   function removeFolder(folderId: string) {
     const folder = folderOf(folderId);
     if (!folder) return;
-    update((d) => ({
-      ...d,
-      folders: d.folders.filter((f) => f.id !== folderId),
-      // Reset member FKs so deleted folders don't leave dangling references
-      // (which would also block re-creating a folder with the same id later).
-      bookmarks: d.bookmarks.map((b) =>
-        b.folder === folderId ? { ...b, folder: null } : b,
-      ),
-    }));
+    update((d) => applyRemoveFolderToState(d, folderId));
     toast.success(`「${folder.name}」已删除，成员网址已恢复到分类网格`);
   }
   function renameFolder(folderId: string, name: string) {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    update((d) => ({
-      ...d,
-      folders: d.folders.map((f) =>
-        f.id === folderId ? { ...f, name: trimmed.slice(0, 20) } : f,
-      ),
-    }));
+    if (!name.trim()) return;
+    update((d) => applyRenameFolderToState(d, folderId, name));
   }
   function submitTodo(e: FormEvent) {
     e.preventDefault();
