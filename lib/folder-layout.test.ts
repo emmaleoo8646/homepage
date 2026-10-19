@@ -48,11 +48,11 @@ describe("layoutMembers — empty folder / single member", () => {
 });
 
 describe("layoutMembers — small counts", () => {
-  it("2 members → 1×2 (no empty placeholders)", () => {
+  it("2 members → 2×2 (first row holds the two singles, second row empty)", () => {
     const layout = layoutMembers([bm("a"), bm("b")]);
-    expect(layout.mode).toBe("1x2");
+    expect(layout.mode).toBe("2x2");
     expect(cellsByKind(layout)).toEqual(["single", "single"]);
-    // Critically: no Plus placeholders, no 4-cell grid.
+    // Critically: no Plus placeholders, no 4-cell grid — second row is just absent.
     expect(layout.cells).toHaveLength(2);
   });
 

@@ -647,11 +647,18 @@ a {
   background: rgba(255, 255, 255, 0.25);
   backdrop-filter: blur(16px);
   padding: 19px;
+  /* Flex column so `.folder-icons` can flex into the padded content area;
+     this lets 1×1 boxes (which are only one row tall in the home grid) hand
+     the real available height down to `.folder-icon`. */
+  display: flex;
+  flex-direction: column;
 }
 .folder-icons {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 16px;
+  flex: 1;
+  min-height: 0;
 }
 .folder-icons img {
   width: 100%;
@@ -1099,8 +1106,15 @@ footer span {
   position: relative;
   width: 100%;
   max-width: 60px;
+  /* Cap the icon's height to its padded parent so a 1×1 box (a single
+     row in the home grid) can't grow taller than the box itself. Combined
+     with `aspect-ratio: 1`, this shrinks the square to fit when there isn't
+     room for the full 60px. */
+  max-height: 100%;
   aspect-ratio: 1;
-  border-radius: 12px;
+  /* 13 px at design size (matches `.app-icon`) but scales down on the
+     shrunken 1×1 N=1 cell so the icon never collapses into a circle. */
+  border-radius: min(13px, 22%);
   overflow: hidden;
   justify-self: center;
 }
@@ -1111,6 +1125,21 @@ footer span {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+/* When the folder icon has to shrink (1×1 box), the Plus glyph, first-letter
+   fallback and inline Globe2 must scale too — otherwise they overflow the
+   now-smaller square. Direct-child selectors so the same rules don't reach
+   into `.folder-icon-stack-cell` siblings. */
+.folder-icon > svg {
+  width: 60%;
+  height: 60%;
+}
+.folder-icon > .icon-fallback {
+  font-size: 50%;
+}
+.folder-icon > .icon-fallback > svg {
+  width: 60%;
+  height: 60%;
 }
 .hot-card [data-slot="tabs"] {
   height: 100%;

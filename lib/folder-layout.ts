@@ -14,10 +14,10 @@ export type FolderCellSlot =
 /**
  * Shape of the box, in CSS-grid terms.
  *   - 1x1: a single square (used for N=0 "empty folder" + N=1)
- *   - 1x2: a single row of 2 cells (N=2)
- *   - 2x2: the canonical 2×2 block (N=3+, with up to 4 cells + stacks)
+ *   - 2x2: the canonical 2×2 block (N≥2, with row 2 left empty for N=2 and
+ *          progressively filled with stacks once N exceeds 4)
  */
-export type LayoutMode = "1x1" | "1x2" | "2x2";
+export type LayoutMode = "1x1" | "2x2";
 
 export interface FolderLayout {
   mode: LayoutMode;
@@ -35,7 +35,8 @@ const STACK_CAP = 4;
  * sees a stray `+` icon next to real bookmarks.
  *
  *   - 1  → 1×1 single
- *   - 2  → 1×2 (single row, no empty cells)
+ *   - 2  → 2×2 (first row holds the two singles; second row is absent —
+ *          no Plus placeholder, no empty cells)
  *   - 3  → 2×2 with three cells filled; cell (2,2) is naturally blank
  *   - 4  → 2×2 four singles
  *   - 5-7   → TL/TR/BL single, BR stacks members 4..N
@@ -74,7 +75,7 @@ export function layoutMembers(members: Bookmark[]): FolderLayout {
     mode = "1x1";
     cells = [takeSingle()];
   } else if (totalShown === 2) {
-    mode = "1x2";
+    mode = "2x2";
     cells = [takeSingle(), takeSingle()];
   } else if (totalShown === 3) {
     mode = "2x2";

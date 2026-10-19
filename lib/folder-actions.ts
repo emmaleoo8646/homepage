@@ -219,3 +219,57 @@ export function findFolder(
 ): Folder | undefined {
   return state.folders.find((f) => f.id === id);
 }
+
+/**
+ * After any state change, fold every folder with at most 1 member back into
+ * standalone bookmarks. The folder row is dropped, and the remaining member
+ * (if any) has its `folder` FK set to `null` so it renders as a regular tile.
+ *
+ * No folder is exempt: an empty (N=0) folder is removed outright, and a
+ * solo (N=1) folder is unwound with the surviving member becoming standalone.
+ *
+ * Returns `state` unchanged (reference-equal) when nothing qualifies, so
+ * React skips re-rendering unaffected slices.
+ */
+export function applyCollapseSoloFoldersToState(state: HomeState): HomeState {
+  const memberCount = new Map<string, number>();
+  for (const b of state.bookmarks) {
+    if (!b.folder) continue;
+    memberCount.set(b.folder, (memberCount.get(b.folder) ?? 0) + 1);
+  }
+  const collapseIds = new Set<string>();
+  for (const f of state.folders) {
+    if ((memberCount.get(f.id) ?? 0) <= 1) collapseIds.add(f.id);
+  }
+  if (collapseIds.size === 0) return state;
+  return {
+    ...state,
+    folders: state.folders.filter((f) => !collapseIds.has(f.id)),
+    bookmarks: state.bookmarks.map((b) =>
+      b.folder && collapseIds.has(b.folder) ? { ...b, folder: null } : b,
+    ),
+  };
+}
+
+/**
+ * After any state change, null the `folder` FK of any bookmark whose folder
+ * row has gone missing. This catches the collapse-then-undo sequence: an
+ * undo callback restores a bookmark with its old FK, but the forward action
+ * may already have deleted that folder via
+ * `applyCollapseSoloFoldersToState` / `applyRemoveFolderToState`, leaving
+ * the bookmark with a dangling FK and thus invisible to the page.
+ *
+ * Returns `state` unchanged (reference-equal) when nothing is dangling.
+ */
+export function applyPruneDanglingBookmarkFKs(state: HomeState): HomeState {
+  const folderIds = new Set(state.folders.map((f) => f.id));
+  let mutated = false;
+  const bookmarks = state.bookmarks.map((b) => {
+    if (b.folder && !folderIds.has(b.folder)) {
+      mutated = true;
+      return { ...b, folder: null };
+    }
+    return b;
+  });
+  return mutated ? { ...state, bookmarks } : state;
+}

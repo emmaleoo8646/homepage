@@ -9,6 +9,8 @@ import {
   applyRemoveFolderToState,
   applyRenameFolderToState,
   applyNewFolderToState,
+  applyCollapseSoloFoldersToState,
+  applyPruneDanglingBookmarkFKs,
   snapshotMergeUndo,
   makeFolder,
   findBookmark,
@@ -416,5 +418,154 @@ describe("findBookmark / findFolder", () => {
     const state = stateWith([bm()]);
     expect(findFolder(state, "f-a")?.id).toBe("f-a");
     expect(findFolder(state, "ghost")).toBeUndefined();
+  });
+});
+
+// ------------------------------------------------------------------
+// applyCollapseSoloFoldersToState
+// ------------------------------------------------------------------
+
+// `stateWith()` always seeds two empty folders; collapse tests want to
+// assert on a specific folder layout, so build the state inline.
+function foldersOnly(folders: { id: string; name: string; category: "home" }[]): HomeState {
+  return { ...initialState, bookmarks: [], folders };
+}
+
+describe("applyCollapseSoloFoldersToState", () => {
+  it("collapses a folder with N=1: member becomes standalone, folder removed", () => {
+    const state: HomeState = {
+      ...foldersOnly([{ id: "f-a", name: "A", category: "home" }]),
+      bookmarks: [
+        bm({ id: "a", folder: "f-a" }),
+        bm({ id: "b", folder: null }),
+      ],
+    };
+    const next = applyCollapseSoloFoldersToState(state);
+    expect(next.folders).toHaveLength(0);
+    expect(next.bookmarks.find((x) => x.id === "a")?.folder).toBeNull();
+  });
+
+  it("collapses an empty folder (N=0): folder removed, no bookmarks touched", () => {
+    const state: HomeState = {
+      ...foldersOnly([{ id: "f-a", name: "A", category: "home" }]),
+      bookmarks: [bm({ id: "a", folder: null })],
+    };
+    const next = applyCollapseSoloFoldersToState(state);
+    expect(next.folders).toHaveLength(0);
+    expect(next.bookmarks).toEqual(state.bookmarks);
+  });
+
+  it("leaves a folder with N=2 alone", () => {
+    const state: HomeState = {
+      ...foldersOnly([{ id: "f-a", name: "A", category: "home" }]),
+      bookmarks: [
+        bm({ id: "a", folder: "f-a" }),
+        bm({ id: "b", folder: "f-a" }),
+        bm({ id: "c", folder: null }),
+      ],
+    };
+    const next = applyCollapseSoloFoldersToState(state);
+    expect(next.folders).toHaveLength(1);
+    expect(next.bookmarks.find((x) => x.id === "a")?.folder).toBe("f-a");
+    expect(next.bookmarks.find((x) => x.id === "b")?.folder).toBe("f-a");
+  });
+
+  it("leaves a 16-member folder alone", () => {
+    const big = Array.from({ length: 16 }, (_, i) =>
+      bm({ id: `m${i}`, folder: "f-a" }),
+    );
+    const state: HomeState = {
+      ...foldersOnly([{ id: "f-a", name: "A", category: "home" }]),
+      bookmarks: [...big, bm({ id: "loose", folder: null })],
+    };
+    const next = applyCollapseSoloFoldersToState(state);
+    expect(next.folders).toHaveLength(1);
+    expect(next.bookmarks.filter((x) => x.folder === "f-a")).toHaveLength(16);
+  });
+
+  it("collapses only the qualifying folder when state mixes N≤1 and N>1", () => {
+    const state: HomeState = {
+      ...foldersOnly([
+        { id: "f-a", name: "A", category: "home" },
+        { id: "f-b", name: "B", category: "home" },
+      ]),
+      bookmarks: [
+        bm({ id: "a", folder: "f-a" }), // f-a: N=1 → collapses
+        bm({ id: "b", folder: "f-b" }),
+        bm({ id: "c", folder: "f-b" }), // f-b: N=2 → stays
+      ],
+    };
+    const next = applyCollapseSoloFoldersToState(state);
+    expect(next.folders.map((f) => f.id)).toEqual(["f-b"]);
+    expect(next.bookmarks.find((x) => x.id === "a")?.folder).toBeNull();
+    expect(next.bookmarks.find((x) => x.id === "b")?.folder).toBe("f-b");
+    expect(next.bookmarks.find((x) => x.id === "c")?.folder).toBe("f-b");
+  });
+
+  it("leaves standalone (folder: null) bookmarks untouched", () => {
+    const state: HomeState = {
+      ...foldersOnly([{ id: "f-a", name: "A", category: "home" }]),
+      bookmarks: [
+        bm({ id: "a", folder: "f-a" }), // f-a: N=1 → collapses
+        bm({ id: "b", folder: null }),
+        bm({ id: "c", folder: null }),
+      ],
+    };
+    const next = applyCollapseSoloFoldersToState(state);
+    expect(next.folders).toHaveLength(0);
+    expect(next.bookmarks.find((x) => x.id === "b")?.folder).toBeNull();
+    expect(next.bookmarks.find((x) => x.id === "c")?.folder).toBeNull();
+  });
+
+  it("no folders present → identity (same state reference)", () => {
+    const state: HomeState = { ...initialState, bookmarks: [], folders: [] };
+    expect(applyCollapseSoloFoldersToState(state)).toBe(state);
+  });
+
+  it("collapses the home 'entertainment' folder at N=1 (no special-case)", () => {
+    const state: HomeState = {
+      ...initialState,
+      bookmarks: [bm({ id: "a", folder: "entertainment", category: "home" })],
+      folders: [{ id: "entertainment", name: "娱乐", category: "home" }],
+    };
+    const next = applyCollapseSoloFoldersToState(state);
+    expect(next.folders).toHaveLength(0);
+    expect(next.bookmarks[0].folder).toBeNull();
+  });
+});
+
+// ------------------------------------------------------------------
+// applyPruneDanglingBookmarkFKs
+// ------------------------------------------------------------------
+
+describe("applyPruneDanglingBookmarkFKs", () => {
+  it("nulls a bookmark whose folder id is missing from state.folders", () => {
+    const state = stateWith([
+      bm({ id: "a", folder: "ghost-folder" }),
+      bm({ id: "b", folder: null }),
+    ]);
+    const next = applyPruneDanglingBookmarkFKs(state);
+    expect(next.bookmarks.find((x) => x.id === "a")?.folder).toBeNull();
+  });
+
+  it("leaves a bookmark pointing to an existing folder alone", () => {
+    const state = stateWith([
+      bm({ id: "a", folder: "f-a" }),
+      bm({ id: "b", folder: null }),
+    ]);
+    expect(applyPruneDanglingBookmarkFKs(state)).toBe(state);
+  });
+
+  it("leaves a standalone (folder: null) bookmark alone", () => {
+    const state = stateWith([bm({ id: "a", folder: null })]);
+    expect(applyPruneDanglingBookmarkFKs(state)).toBe(state);
+  });
+
+  it("no dangling FKs → identity (same state reference)", () => {
+    const state = stateWith([
+      bm({ id: "a", folder: "f-a" }),
+      bm({ id: "b", folder: "f-b" }),
+    ]);
+    expect(applyPruneDanglingBookmarkFKs(state)).toBe(state);
   });
 });

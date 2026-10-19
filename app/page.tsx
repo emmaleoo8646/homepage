@@ -101,6 +101,8 @@ import {
   applyRemoveFolderToState,
   applyRenameFolderToState,
   applyNewFolderToState,
+  applyCollapseSoloFoldersToState,
+  applyPruneDanglingBookmarkFKs,
   snapshotMergeUndo,
   makeFolder,
   findBookmark,
@@ -288,8 +290,19 @@ export default function Page() {
   const stateRef = useRef(data);
   stateRef.current = data;
   const searchRef = useRef<HTMLInputElement>(null);
+  // Every user-initiated mutation goes through `update`. Two invariants
+  // run after the mutator: `applyPruneDanglingBookmarkFKs` cleans up any
+  // bookmark whose `folder` FK references a row that no longer exists
+  // (e.g. an undo restoring a bookmark into an already-collapsed folder);
+  // `applyCollapseSoloFoldersToState` then folds any folder with at most
+  // one member back into a standalone bookmark and removes the folder row.
   const update = useCallback(
-    (fn: (d: HomeState) => HomeState) => setData(fn),
+    (fn: (d: HomeState) => HomeState) =>
+      setData((prev) =>
+        applyCollapseSoloFoldersToState(
+          applyPruneDanglingBookmarkFKs(fn(prev)),
+        ),
+      ),
     [],
   );
   useEffect(() => {
@@ -623,13 +636,39 @@ export default function Page() {
     if (input.mode === "new") {
       const folderId = uid();
       const folder = makeFolder(folderId, input.name, mergeDraft.category);
-      update((d) => applyNewFolderToState(d, folder));
-      mergeWithToast(
-        mergeDraft.source.id,
-        mergeDraft.target.id,
-        folderId,
-        input.name,
+      const sourceId = mergeDraft.source.id;
+      const targetId = mergeDraft.target.id;
+      // Snapshot BEFORE the update so `prevFolders` reflects pre-merge state
+      // and does not include the brand-new folder — otherwise undo would
+      // re-create it. The create-and-merge happens in a single `update`
+      // because between them the new folder is at N=0, and the wrapped
+      // auto-collapse would otherwise delete it before the merge populates
+      // it.
+      const undo = snapshotMergeUndo(data, sourceId, targetId);
+      update((d) =>
+        applyMergeToState(
+          applyNewFolderToState(d, folder),
+          sourceId,
+          targetId,
+          folderId,
+        ),
       );
+      toast(`已合并到「${input.name}」`, {
+        action: {
+          label: "撤销",
+          onClick: () =>
+            update((d) =>
+              applyUndoMergeToState(
+                d,
+                sourceId,
+                targetId,
+                undo.sourcePrev,
+                undo.targetPrev,
+                undo.prevFolders,
+              ),
+            ),
+        },
+      });
     } else {
       const folder = findFolder(data, input.folderId);
       if (!folder) {
@@ -850,25 +889,25 @@ export default function Page() {
     const layout = layoutMembers(members);
 
     // Inner .folder-icons grid template — what N looks like inside the box.
+    // N=0 (empty folder) and N=1 both render as a single 60px square; N≥2
+    // renders as a 2×2 grid, with row 2 left empty for N=2 and progressively
+    // filled (with stacks) as N grows.
     const innerTemplate =
       layout.mode === "1x1"
         ? { gridTemplateColumns: "60px", gridTemplateRows: "60px" }
-        : layout.mode === "1x2"
-          ? { gridTemplateColumns: "repeat(2, 60px)" }
-          : {
-              gridTemplateColumns: "repeat(2, 60px)",
-              gridTemplateRows: "repeat(2, 60px)",
-            };
+        : {
+            gridTemplateColumns: "repeat(2, 60px)",
+            gridTemplateRows: "repeat(2, 60px)",
+          };
 
     // Outer <Tile> grid placement — covers the right cells in the home-grid /
-    // bookmark-grid. Inline style overrides `.folder-tile-inline` defaults so a
-    // 2-member folder is a 1×2 rectangle instead of a square with empty cells.
+    // bookmark-grid. Inline style overrides `.folder-tile-inline` defaults so
+    // an empty / single-member folder occupies one cell, while a folder with
+    // ≥2 members occupies a 2×2 square (with row 2 unused for N=2).
     const tileBoxSize =
       layout.mode === "1x1"
         ? { gridColumn: "span 1", gridRow: "span 1" }
-        : layout.mode === "1x2"
-          ? { gridColumn: "span 2", gridRow: "span 1" }
-          : { gridColumn: "span 2", gridRow: "span 2" };
+        : { gridColumn: "span 2", gridRow: "span 2" };
 
     return (
       <Tile
