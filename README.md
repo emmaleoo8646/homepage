@@ -1,6 +1,6 @@
 # HiTab · 我的起始页
 
-参考 [HiTab](https://www.haipc.cn) 的独立复刻版，以 React、TypeScript 和 Vinext 实现。支持静态导出部署到私有 Sites 或阿里云 ECS。
+以 React、TypeScript 和 Vinext 实现。支持静态导出部署到私有 Sites 或阿里云 ECS。
 
 阿里云版本域名为 `home.douwuyou.cn`，采用 HTTPS 与服务器端登录保护。配置、更新和验收方法见 [ECS 部署说明](deploy/ecs/README.md)。源码仓库为 [emmaleoo8646/homepage](https://github.com/emmaleoo8646/homepage)。
 
