@@ -28,7 +28,7 @@ node deploy/ecs/verify.mjs [ipv4]   # smoke-test the ECS deployment (anonymous a
 bash deploy/ecs/deploy.sh alog-prod   # run the deploy pipeline
 ```
 
-Local single-test pattern: there are no unit tests in this repo. Verification is `npx tsc --noEmit` + `npm run build` + (for ECS) `node deploy/ecs/verify.mjs`.
+Local verification gate: `npx tsc --noEmit` + `npm run lint` + `npm test` + `npm run build`, and `node deploy/ecs/verify.mjs` for the ECS deploy. Note `npm run lint` has a pre-existing baseline of 7 errors (localStorage effects in `app/page.tsx` / `lib/sync-state.ts`, plus `components/weather-detail.tsx`) — compare against it rather than expecting zero.
 
 ## Architecture overview
 
@@ -83,7 +83,7 @@ Server-side (`deploy/ecs/install.sh`, invoked over SSH by `deploy.sh`):
 
 - **`components/ui/**` and `hooks/use-mobile.ts` are vendored verbatim from shadcn@4.17.0.** `eslint.config.mjs` deliberately relaxes `@typescript-eslint/no-unused-vars`, `react-hooks/purity` and `react-hooks/set-state-in-effect` for these paths. Do not refactor them; extend via wrapper components in `components/` instead.
 - **`.env.ecs.login.json` and `.env.ecs.htpasswd` are gitignored and chmod 600**, but no longer shipped or referenced by the ECS deploy. They exist only as a dormant fallback for future HTTP Basic re-enable. Do not log, screenshot, or commit them. To re-enable Basic: see `deploy/ecs/README.md`.
-- **No tests.** Add a vitest harness and `npm test` script before relying on test-driven workflows.
+- **Vitest is wired** (`vitest.config.mts` + `vitest.setup.ts`, `npm test`), but its `include` only covers `lib/**` and `components/**` — **`app/**` is excluded**. Since `app/page.tsx` is one large client component, anything you want under test has to be lifted into `components/` or `lib/` first; that extraction is the intended shape here, not a workaround. `vitest.config.mts` deliberately omits `@vitejs/plugin-react` (esbuild handles `.tsx`), and sets `globals: false`, so test files import `describe/it/expect` explicitly from `vitest`. For component tests, copy the `ResizeObserver` / `matchMedia` / `scrollIntoView` polyfill block from `components/folder-merge-dialog.test.tsx` — jsdom ships none of them and Radix roots need them at mount.
 - **Drizzle schema is empty by default** (`db/schema.ts`); the D1 example lives in `examples/d1/db/schema.ts`. Only run `npm run db:generate` after adding a real schema, and only if `.openai/hosting.json` actually wires the `d1` binding.
 - **No `pages/` or app-router server routes beyond `layout.tsx`/`page.tsx`.** `next.config.ts` is static export — adding `getServerSideProps` or a server route will break the ECS build. All UI lives in `app/page.tsx`.
 - **`page.tsx` is one large client component on purpose.** Sub-files were tried and re-merged; new feature areas should be added as additional exports/hooks within the same file or as small components in `components/`, not as separate routes.
