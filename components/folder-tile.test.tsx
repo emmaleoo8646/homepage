@@ -133,6 +133,19 @@ describe("FolderTile — cover icons are links", () => {
     fireEvent.dragEnd(link);
     expect(props.onDragEndMember).toHaveBeenCalled();
   });
+
+  it("keeps the ⋯ menu button out of the card so it can't shadow a cover icon", () => {
+    const { card } = setup();
+    // `.bookmark-more` is absolutely positioned over the tile's top-right
+    // corner and is opacity:0 until hover. It must stay a *sibling* of the
+    // card, never a descendant, or it would sit on top of a cover icon and
+    // swallow the click.
+    expect(card.querySelector(".bookmark-more")).toBeNull();
+    expect(screen.getByRole("button", { name: "管理工作分组" })).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "管理工作分组" }).closest(".folder-card"),
+    ).toBeNull();
+  });
 });
 
 // ------------------------------------------------------------------
