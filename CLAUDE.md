@@ -25,7 +25,7 @@ npm run lint            # eslint, ignores dist/ and .next/
 npx tsc --noEmit        # type check only
 npm run db:generate     # drizzle-kit migrations (only meaningful if db/schema.ts is populated)
 node deploy/ecs/verify.mjs [ipv4]   # smoke-test the ECS deployment (anonymous against home.douwuyou.cn)
-bash deploy/ecs/install.sh alog-prod  # run the deploy pipeline
+bash deploy/ecs/deploy.sh alog-prod   # run the deploy pipeline
 ```
 
 Local single-test pattern: there are no unit tests in this repo. Verification is `npx tsc --noEmit` + `npm run build` + (for ECS) `node deploy/ecs/verify.mjs`.
@@ -61,17 +61,19 @@ env.CONNECTORS (Worker service binding)
 
 ### ECS deployment
 
-Pipeline (`deploy/ecs/install.sh`, runs locally):
+Pipeline (`deploy/ecs/deploy.sh`, runs locally):
 
-1. `npx tsc --noEmit` + `npm run build`.
-2. Tar `dist/client/` (with `--no-xattrs` and `COPYFILE_DISABLE=1` to strip macOS metadata) and ship `compose.yaml`, `nginx.conf`, `http.conf`, `https.conf`, `install.sh` to `alog-prod:/opt/homepage/incoming/<sha14>-<utc>/`.
+1. Refuses to run on a dirty working tree (`git status --porcelain`), then `npx tsc --noEmit` + `npm run build`.
+2. Tar `dist/client/` (with `--no-xattrs` and `COPYFILE_DISABLE=1` to strip macOS metadata).
+3. Build the sync image with `docker buildx build --platform linux/amd64 --load` (the ECS host is amd64; the deployer may be Apple Silicon) and `docker save` it into the bundle.
+4. `scp` the bundle plus `compose.yaml`, `nginx.conf`, `http.conf`, `https.conf`, `install.sh` to `alog-prod:/opt/homepage/incoming/<40-char-commit-sha>-<UTC ts>/`, then `ssh` to run `install.sh <release>`. `install.sh` validates that exact `<sha>-<ts>` shape, so it is **not** the entry point for local runs — `deploy.sh` is.
 
-Server-side (`deploy/ecs/deploy.sh`):
+Server-side (`deploy/ecs/install.sh`, invoked over SSH by `deploy.sh`):
 
 - Extracts into `/opt/homepage/releases/<release>/`, atomically swaps `/opt/homepage/current` symlink.
-- `docker compose up -d --force-recreate --no-deps web` (nginx container, see `deploy/ecs/compose.yaml`).
-- Writes `/etc/family-diary/nginx-extra/homepage.conf` from `http.conf` + (if cert present) `https.conf`, runs `nginx -t` on both gateway and web, reloads.
-- Healthchecks via `wget http://127.0.0.1/healthz`.
+- `docker compose up -d --force-recreate --no-deps web sync` (nginx + Fastify sync, see `deploy/ecs/compose.yaml`).
+- Healthchecks `http://127.0.0.1/healthz` in the web container and `http://127.0.0.1:3000/api/healthz` in the sync container, **rolling the `current` symlink back to the previous release** if either fails.
+- Writes `/etc/family-diary/nginx-extra/homepage.conf` from `http.conf` + (if cert present) `https.conf`, runs `nginx -t` on both gateway and web, reloads. Refuses to deploy if `https.conf` is missing its sync-routes block.
 
 `deploy/ecs/create-login.mjs` is a dormant idempotent script retained for any future HTTP Basic re-enable; it is NOT invoked from `deploy.sh` anymore.
 
