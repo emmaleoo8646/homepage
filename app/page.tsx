@@ -4,9 +4,8 @@ import {
   useEffect,
   useRef,
   useState,
-  type CSSProperties,
+  type DragEvent,
   type FormEvent,
-  type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
 import {
@@ -41,7 +40,6 @@ import {
   Monitor,
   Moon,
   FolderPlus,
-  FolderOpen,
   FolderInput,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -123,7 +121,8 @@ import {
 } from "@/components/folder-merge-dialog";
 import { WeatherTile } from "@/components/weather-tile";
 import { WeatherDetail } from "@/components/weather-detail";
-import { layoutMembers } from "@/lib/folder-layout";
+import { Tile } from "@/components/tile";
+import { FolderTile } from "@/components/folder-tile";
 import { isBundledIcon } from "@/lib/bookmark-icons";
 import { readImageFile } from "@/lib/icon-upload";
 import {
@@ -193,24 +192,6 @@ function Choice({
         ))}
       </SelectContent>
     </Select>
-  );
-}
-function Tile({
-  name,
-  position,
-  children,
-  style,
-}: {
-  name: string;
-  position: string;
-  children: ReactNode;
-  style?: CSSProperties;
-}) {
-  return (
-    <div className={`tile ${position}`} style={style}>
-      <div className="tile-surface">{children}</div>
-      <span className="tile-label">{name}</span>
-    </div>
   );
 }
 function lunar(date: Date) {
@@ -616,6 +597,59 @@ export default function Page() {
       },
     });
   }
+  // Drop a bookmark onto a folder tile in the grid → merge it straight in,
+  // no merge dialog. Lives here (not inside `FolderTile`) so the component
+  // stays a pure view over state.
+  function dropOnFolder(folderId: string, e: DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    // Stop the section's onDrop from also firing when a folder tile
+    // already handled the merge flow.
+    e.stopPropagation();
+    const folder = folderOf(folderId);
+    if (!folder) return;
+    const from = dragged ?? e.dataTransfer.getData("text/plain");
+    setDragged(null);
+    setDragOver(null);
+    if (!from) return;
+    const source = data.bookmarks.find((v) => v.id === from);
+    if (!source) return;
+    if (source.category !== folder.category) {
+      toast.error("不能跨分类合并");
+      return;
+    }
+    if (source.folder === folder.id) {
+      toast("已在此分组中");
+      return;
+    }
+    const prevFolder = source.folder ?? null;
+    update((d) => applyBookmarkIntoFolderToState(d, source.id, folder.id));
+    toast(`「${source.name}」已加入「${folder.name}」`, {
+      action: {
+        label: "撤销",
+        onClick: () =>
+          update((d) =>
+            applyUndoBookmarkIntoFolderToState(d, source.id, prevFolder),
+          ),
+      },
+    });
+  }
+  // Cover icons inside a folder tile are draggable so a member can be
+  // dragged back out into empty space (see the section-level `onDrop`).
+  function startDragMember(id: string, e: DragEvent) {
+    setDragged(id);
+    e.dataTransfer.setData("text/plain", id);
+    e.dataTransfer.effectAllowed = "move";
+  }
+  function endDragging() {
+    setDragged(null);
+    setDragOver(null);
+  }
+  function dragOverFolder(folderId: string) {
+    if (dragged) setDragOver(folderId);
+  }
+  function clearDragOver() {
+    setDragOver(null);
+  }
   function openMerge(source: Bookmark, target: Bookmark) {
     if (source.category !== target.category) {
       toast.error("不能跨分类合并");
@@ -771,15 +805,8 @@ export default function Page() {
         key={b.id}
         className={`tile app-tile ${position} ${dragOver === b.id ? "drop-target" : ""}`}
         draggable
-        onDragStart={(e) => {
-          setDragged(b.id);
-          e.dataTransfer.setData("text/plain", b.id);
-          e.dataTransfer.effectAllowed = "move";
-        }}
-        onDragEnd={() => {
-          setDragged(null);
-          setDragOver(null);
-        }}
+        onDragStart={(e) => startDragMember(b.id, e)}
+        onDragEnd={endDragging}
         onDragOver={(e) => {
           e.preventDefault();
           if (dragged) setDragOver(b.id);
@@ -886,193 +913,19 @@ export default function Page() {
   }
   function renderFolder(folder: Folder) {
     const members = data.bookmarks.filter((b) => b.folder === folder.id);
-    const layout = layoutMembers(members);
-
-    // Inner .folder-icons grid template — what N looks like inside the box.
-    // N=0 (empty folder) and N=1 both render as a single 60px square; N≥2
-    // renders as a 2×2 grid, with row 2 left empty for N=2 and progressively
-    // filled (with stacks) as N grows.
-    const innerTemplate =
-      layout.mode === "1x1"
-        ? { gridTemplateColumns: "60px", gridTemplateRows: "60px" }
-        : {
-            gridTemplateColumns: "repeat(2, 60px)",
-            gridTemplateRows: "repeat(2, 60px)",
-          };
-
-    // Outer <Tile> grid placement — covers the right cells in the home-grid /
-    // bookmark-grid. Inline style overrides `.folder-tile-inline` defaults so
-    // an empty / single-member folder occupies one cell, while a folder with
-    // ≥2 members occupies a 2×2 square (with row 2 unused for N=2).
-    const tileBoxSize =
-      layout.mode === "1x1"
-        ? { gridColumn: "span 1", gridRow: "span 1" }
-        : { gridColumn: "span 2", gridRow: "span 2" };
-
     return (
-      <Tile
-        key={folder.id}
-        name={folder.name}
-        position={`folder-tile-inline ${dragOver === folder.id ? "drop-target" : ""}`}
-        style={tileBoxSize}
-      >
-        <button
-          className="widget folder-card"
-          onClick={() => openFolder(folder.id)}
-          aria-label={`打开${folder.name}分组`}
-          onDragOver={(e) => {
-            e.preventDefault();
-            if (dragged) setDragOver(folder.id);
-          }}
-          onDragLeave={() => setDragOver(null)}
-          onDrop={(e) => {
-            e.preventDefault();
-            // Stop the section's onDrop from also firing when a folder tile
-            // already handled the merge flow (without this, dropping onto a
-            // folder tile would also try to ungroup the source).
-            e.stopPropagation();
-            const from = dragged ?? e.dataTransfer.getData("text/plain");
-            setDragged(null);
-            setDragOver(null);
-            if (!from) return;
-            const source = data.bookmarks.find((v) => v.id === from);
-            if (!source) return;
-            if (source.category !== folder.category) {
-              toast.error("不能跨分类合并");
-              return;
-            }
-            if (members.some((m) => m.id === source.id)) {
-              toast("已在此分组中");
-              return;
-            }
-            // Drop onto a folder → direct merge, no merge dialog. Mirrors the
-            // cover-icon → folder path so users can rearrange groups by
-            // dragging without first opening the folder panel.
-            const prevFolder = source.folder ?? null;
-            update((d) =>
-              applyBookmarkIntoFolderToState(d, source.id, folder.id),
-            );
-            toast(`「${source.name}」已加入「${folder.name}」`, {
-              action: {
-                label: "撤销",
-                onClick: () =>
-                  update((d) =>
-                    applyUndoBookmarkIntoFolderToState(
-                      d,
-                      source.id,
-                      prevFolder,
-                    ),
-                  ),
-              },
-            });
-          }}
-        >
-          <div className="folder-icons" style={innerTemplate}>
-            {layout.cells.map((cell, ci) => {
-              if (cell.kind === "single") {
-                const bm = cell.bookmark;
-                // Empty placeholder cells (N=0) stay non-draggable so the
-                // click still opens the folder instead of starting a drag.
-                return (
-                  <div
-                    className="folder-icon"
-                    style={{
-                      background:
-                        iconColors[bm?.icon ?? ""] ?? "#fff",
-                    }}
-                    key={ci}
-                    draggable={bm != null}
-                    onDragStart={
-                      bm
-                        ? (e) => {
-                            setDragged(bm.id);
-                            e.dataTransfer.setData("text/plain", bm.id);
-                            e.dataTransfer.effectAllowed = "move";
-                          }
-                        : undefined
-                    }
-                    onDragEnd={
-                      bm
-                        ? () => {
-                            setDragged(null);
-                            setDragOver(null);
-                          }
-                        : undefined
-                    }
-                  >
-                    {bm ? (
-                      <IconImage
-                        icon={bm.icon}
-                        name={bm.name}
-                        url={bm.url}
-                      />
-                    ) : (
-                      <Plus size={30} />
-                    )}
-                  </div>
-                );
-              }
-              return (
-                <div
-                  className="folder-icon folder-icon-stack"
-                  style={{ background: "rgba(255,255,255,0.18)" }}
-                  key={ci}
-                >
-                  {cell.bookmarks.map((m) => (
-                    <div
-                      className="folder-icon-stack-cell"
-                      style={{
-                        background: iconColors[m.icon] ?? "#fff",
-                      }}
-                      key={m.id}
-                      draggable
-                      onDragStart={(e) => {
-                        setDragged(m.id);
-                        e.dataTransfer.setData("text/plain", m.id);
-                        e.dataTransfer.effectAllowed = "move";
-                      }}
-                      onDragEnd={() => {
-                        setDragged(null);
-                        setDragOver(null);
-                      }}
-                    >
-                      <IconImage icon={m.icon} name={m.name} url={m.url} />
-                    </div>
-                  ))}
-                  {cell.overflow > 0 && (
-                    <span className="folder-overflow-badge">
-                      +{cell.overflow}
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              className="bookmark-more"
-              aria-label={`管理${folder.name}分组`}
-            >
-              <MoreHorizontal size={15} />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            <DropdownMenuItem onSelect={() => openFolder(folder.id)}>
-              <FolderOpen />
-              打开分组
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              variant="destructive"
-              onSelect={() => removeFolder(folder.id)}
-            >
-              <Trash2 />
-              删除分组
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </Tile>
+      <FolderTile
+        folder={folder}
+        members={members}
+        isDropTarget={dragOver === folder.id}
+        onOpen={openFolder}
+        onRemoveFolder={removeFolder}
+        onDragStartMember={startDragMember}
+        onDragEndMember={endDragging}
+        onDragOverFolder={dragOverFolder}
+        onDragLeave={clearDragOver}
+        onDropOnFolder={dropOnFolder}
+      />
     );
   }
   type VisibleItem =

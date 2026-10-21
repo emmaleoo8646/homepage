@@ -652,6 +652,10 @@ a {
      the real available height down to `.folder-icon`. */
   display: flex;
   flex-direction: column;
+  /* The card is a `<div>` now (a `<button>` can't legally hold the `<a>`
+     cover icons), so it no longer inherits the element-level
+     `button { cursor: pointer }`. Clicking the padding still opens it. */
+  cursor: pointer;
 }
 .folder-icons {
   display: grid;
@@ -1094,7 +1098,11 @@ footer span {
   box-shadow: 0 2px 6px #0002;
 }
 .app-tile:hover .bookmark-more,
-.app-tile:focus-within .bookmark-more {
+.app-tile:focus-within .bookmark-more,
+/* Folder tiles use `folder-tile-inline`, not `app-tile` — without these the
+   打开分组 / 删除分组 menu was unreachable on desktop. */
+.folder-tile-inline:hover .bookmark-more,
+.folder-tile-inline:focus-within .bookmark-more {
   opacity: 1;
 }
 .drop-target {
@@ -1104,6 +1112,14 @@ footer span {
 }
 .folder-icon {
   position: relative;
+  /* Cover icons are `<a>` links now, so center the empty-folder `<Plus>`
+     placeholder the same way a flex box would (Tailwind preflight makes
+     `svg` display:block, which would otherwise sit on the text baseline).
+     `.folder-icon-stack` re-sets `display: grid` further down — same-class,
+     later rule, same trick the duplicated `position: relative` already uses. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   max-width: 60px;
   /* Cap the icon's height to its padded parent so a 1×1 box (a single
@@ -2313,6 +2329,24 @@ kbd {
   border-radius: 6px;
   font-weight: 500;
   pointer-events: none;
+}
+
+/* A folder's cover icons open that member's site, so they get the pointer
+   cursor and a hover ring. The focus ring comes free from the global
+   `a:focus-visible` rule above. */
+.folder-icon-link {
+  cursor: pointer;
+}
+.folder-icon-link:hover {
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 85%);
+}
+
+/* Folder tiles render the name as a `<button>` so 「打开分组」stays
+   reachable once the cover icons became links. Tailwind preflight already
+   zeroes a button's padding / border / background, so it just needs the
+   pointer cursor on top of `.tile-label`'s existing sizing + ellipsis. */
+.tile-label-action {
+  cursor: pointer;
 }
 
 /* Bookmark form: icon picker row (Avatar + file input + clear button) */
